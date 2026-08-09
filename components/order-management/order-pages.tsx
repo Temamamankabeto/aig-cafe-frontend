@@ -37,6 +37,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -1071,31 +1072,6 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
         <CardContent className="space-y-4">
           <div className="overflow-x-auto rounded-xl border">
             <Table>
-              <TableBody>
-                <TableRow>
-                  <TableCell className="font-semibold">Cash Sales</TableCell>
-                  <TableCell className="text-right font-medium">{money(totals.cash)}</TableCell>
-                  <TableCell className="font-semibold">Credit Sales</TableCell>
-                  <TableCell className="text-right font-medium">{money(totals.credit)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="font-semibold">Total Price</TableCell>
-                  <TableCell className="text-right font-medium">{money(totals.totalPrice)}</TableCell>
-                  <TableCell className="font-semibold">Service Charge</TableCell>
-                  <TableCell className="text-right font-medium">{money(totals.serviceCharge)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="font-semibold">VAT</TableCell>
-                  <TableCell className="text-right font-medium">{money(totals.vat)}</TableCell>
-                  <TableCell className="font-semibold">Grand / Net Total</TableCell>
-                  <TableCell className="text-right font-medium">{money(totals.grandTotal)}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border">
-            <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Order number</TableHead>
@@ -1152,6 +1128,17 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
                   </TableRow>
                 )}
               </TableBody>
+              <TableFooter>
+                <TableRow className="hover:bg-muted/50">
+                  <TableCell colSpan={6} className="text-right font-bold">
+                    Total Price
+                  </TableCell>
+                  <TableCell className="font-bold">
+                    {money(totals.totalPrice)}
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableFooter>
             </Table>
           </div>
 

@@ -1,7 +1,8 @@
-import { BarChart3, ClipboardList, Coffee, CreditCard, LayoutDashboard, PackageCheck, ShoppingCart, Store, Truck, Users, Warehouse, Wine } from "lucide-react";
+import { BarChart3, ClipboardList, Coffee, CreditCard, ShieldCheck, ShoppingCart, Store, Truck, Users, Warehouse, Wine } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export type AppRoleKey =
+  | "general-admin"
   | "cafeteria-manager"
   | "fb-controller"
   | "finance-manager"
@@ -23,6 +24,7 @@ export type DashboardDefinition = {
 };
 
 export const roleHome: Record<AppRoleKey, string> = {
+  "general-admin": "/dashboard/general-admin",
   "cafeteria-manager": "/dashboard/cafeteria-manager",
   "fb-controller": "/dashboard/fb-controller",
   "finance-manager": "/dashboard/finance-manager",
@@ -36,27 +38,35 @@ export const roleHome: Record<AppRoleKey, string> = {
 };
 
 export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
+  "general-admin": {
+    key: "general-admin",
+    roleName: "General Admin",
+    title: "General Admin Dashboard",
+    subtitle: "System administration, users, access control, configuration, audit, and operational oversight.",
+    route: roleHome["general-admin"],
+    icon: ShieldCheck,
+  },
   "cafeteria-manager": {
     key: "cafeteria-manager",
-    roleName: "Cafeteria Manager",
-    title: "Cafeteria Manager Dashboard",
-    subtitle: "Empty control center for cafeteria operations, staff, sales, and reports.",
+    roleName: "Manager",
+    title: "Manager Dashboard",
+    subtitle: "Restaurant operations, approvals, staff, sales, inventory, and reports.",
     route: roleHome["cafeteria-manager"],
     icon: Store,
   },
   "fb-controller": {
     key: "fb-controller",
-    roleName: "F & B Controller",
-    title: "F & B Controller Dashboard",
-    subtitle: "Empty dashboard for menu costing, inventory control, recipes, and stock reports.",
+    roleName: "F&B Controller",
+    title: "F&B Controller Dashboard",
+    subtitle: "Menu costing, inventory control, recipes, procurement validation, and stock reports.",
     route: roleHome["fb-controller"],
     icon: ClipboardList,
   },
   "finance-manager": {
     key: "finance-manager",
-    roleName: "Finance Manager",
-    title: "Finance Manager Dashboard",
-    subtitle: "Empty dashboard for payments, shifts, settlement, and finance reports.",
+    roleName: "Finance",
+    title: "Finance Dashboard",
+    subtitle: "Payments, outstanding bills, refunds, credit settlements, and finance reports.",
     route: roleHome["finance-manager"],
     icon: BarChart3,
   },
@@ -64,7 +74,7 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
     key: "stock-keeper",
     roleName: "Stock Keeper",
     title: "Stock Keeper Dashboard",
-    subtitle: "Empty dashboard for receiving, stock balances, movement, and low-stock alerts.",
+    subtitle: "Receiving, stock balances, movements, adjustments, and low-stock alerts.",
     route: roleHome["stock-keeper"],
     icon: Warehouse,
   },
@@ -72,7 +82,7 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
     key: "purchaser",
     roleName: "Purchaser",
     title: "Purchaser Dashboard",
-    subtitle: "Empty dashboard for suppliers, purchase orders, receiving, and procurement tracking.",
+    subtitle: "Suppliers, purchase requests, validation feedback, and procurement tracking.",
     route: roleHome.purchaser,
     icon: Truck,
   },
@@ -80,7 +90,7 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
     key: "cashier",
     roleName: "Cashier",
     title: "Cashier Dashboard",
-    subtitle: "Empty dashboard for POS orders, payments, receipts, and cash shifts.",
+    subtitle: "POS orders, payments, receipts, pending bills, and cash shifts.",
     route: roleHome.cashier,
     icon: CreditCard,
   },
@@ -88,7 +98,7 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
     key: "kitchen-staff",
     roleName: "Kitchen Staff",
     title: "Kitchen Staff Dashboard",
-    subtitle: "Empty dashboard for kitchen tickets, preparation status, and ready orders.",
+    subtitle: "Kitchen tickets, preparation status, and ready food orders.",
     route: roleHome["kitchen-staff"],
     icon: Coffee,
   },
@@ -96,7 +106,7 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
     key: "barman",
     roleName: "Barman",
     title: "Barman Dashboard",
-    subtitle: "Empty dashboard for bar tickets, drink preparation, and ready orders.",
+    subtitle: "Bar tickets, beverage preparation, and ready orders.",
     route: roleHome.barman,
     icon: Wine,
   },
@@ -104,7 +114,7 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
     key: "waiter",
     roleName: "Waiter",
     title: "Waiter Dashboard",
-    subtitle: "Empty dashboard for table service, customer orders, and served items.",
+    subtitle: "Table service, customer orders, ready items, and served orders.",
     route: roleHome.waiter,
     icon: Users,
   },
@@ -112,7 +122,7 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
     key: "customer",
     roleName: "Customer",
     title: "Customer Dashboard",
-    subtitle: "Empty dashboard for public menu, orders, bills, and payment status.",
+    subtitle: "Public menu, personal orders, bills, and payment status.",
     route: roleHome.customer,
     icon: ShoppingCart,
   },
@@ -120,8 +130,10 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
 
 export const dashboardList = Object.values(dashboardConfig);
 
-export function normalizeRole(role?: string | null): AppRoleKey {
+export function normalizeRole(role?: string | null): AppRoleKey | null {
   const value = String(role ?? "").toLowerCase().replace(/&/g, "and").replace(/_/g, " ").replace(/-/g, " ").trim();
+  if (["general admin", "general administrator", "admin"].includes(value)) return "general-admin";
+  if (["manager", "cafeteria manager"].includes(value)) return "cafeteria-manager";
   if (value.includes("f") && value.includes("b") && value.includes("controller")) return "fb-controller";
   if (value.includes("finance")) return "finance-manager";
   if (value.includes("stock") || value.includes("store keeper") || value.includes("storekeeper")) return "stock-keeper";
@@ -131,9 +143,10 @@ export function normalizeRole(role?: string | null): AppRoleKey {
   if (value.includes("bar") || value.includes("barman")) return "barman";
   if (value.includes("waiter")) return "waiter";
   if (value.includes("customer")) return "customer";
-  return "cafeteria-manager";
+  return null;
 }
 
 export function getDashboardForRole(role?: string | null) {
-  return dashboardConfig[normalizeRole(role)];
+  const roleKey = normalizeRole(role);
+  return roleKey ? dashboardConfig[roleKey] : null;
 }

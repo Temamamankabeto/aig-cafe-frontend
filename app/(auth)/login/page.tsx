@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Lock, User } from "lucide-react";
 import { toast } from "sonner";
 import { authService } from "@/services/auth/auth.service";
+import { getDashboardForRole } from "@/config/dashboard.config";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,8 +19,16 @@ export default function LoginPage() {
     try {
       const response = await authService.login({ login, password });
       authService.saveSession(response);
+      const role = response.roles?.[0] ?? response.user?.roles?.[0] ?? response.user?.role;
+      const dashboard = getDashboardForRole(role);
+
+      if (!dashboard) {
+        await authService.logout();
+        throw new Error("Your account does not have a supported system role. Contact the administrator.");
+      }
+
       toast.success("Logged in successfully");
-      router.replace("/dashboard");
+      router.replace(dashboard.route);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Login failed");
     } finally {

@@ -12,6 +12,7 @@ import {
   PackageCheck,
   Plus,
   RefreshCcw,
+  Printer,
   Search,
   Send,
   Truck,
@@ -69,6 +70,7 @@ import {
   type SupplierRow,
 } from "@/services/inventory-management/procurement.service";
 import { PurchaseValidationConfirmPage } from "@/components/inventory-management/purchase-validation-confirm-page";
+import { printBusinessDocument } from "@/lib/print-documents";
 
 type StatusFilter =
   | "all"
@@ -80,7 +82,6 @@ type StatusFilter =
   | "partially_received"
   | "completed"
   | "cancelled";
-const [status, setStatus] = useState<StatusFilter>("all");
 function extractError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
@@ -215,6 +216,34 @@ function PoLinesTable({ lines }: { lines: PurchaseOrderItemRow[] }) {
       </TableBody>
     </Table>
   );
+}
+
+function printPurchaseOrder(po: PurchaseOrderRow) {
+  printBusinessDocument({
+    title: "Purchase Order",
+    reference: po.po_number ?? `PO-${po.id}`,
+    details: [
+      ["Supplier", po.supplier?.name ?? "—"],
+      ["Status", po.status.replaceAll("_", " ")],
+      ["Expected date", po.expected_date ?? "—"],
+      ["Created", po.created_at ? new Date(po.created_at).toLocaleString() : "—"],
+    ],
+    columns: [
+      { key: "item", label: "Inventory item" },
+      { key: "quantity", label: "Ordered quantity", align: "right" },
+      { key: "received", label: "Received", align: "right" },
+      { key: "unitCost", label: "Unit cost (ETB)", align: "right" },
+      { key: "lineTotal", label: "Line total (ETB)", align: "right" },
+    ],
+    rows: (po.items ?? []).map((line) => ({
+      item: poItemName(line),
+      quantity: `${line.quantity} ${lineUnit(line)}`,
+      received: `${line.received_quantity ?? 0} ${lineUnit(line)}`,
+      unitCost: formatMoney(line.unit_cost),
+      lineTotal: formatMoney(line.line_total ?? Number(line.quantity) * Number(line.unit_cost)),
+    })),
+    summary: [["Grand total", `${formatMoney(po.total ?? 0)} ETB`]],
+  });
 }
 
 export function SuppliersPage() {
@@ -393,7 +422,7 @@ function SuppliersTable({
 
 export function PurchaseRequestsPage() {
   const [search, setSearch] = useState("");
-const [status, setStatus] = useState<StatusFilter>("all");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["procurement", "purchase-orders", search, status],
@@ -877,10 +906,12 @@ function ReceivingOrdersTable({
                   Total {formatMoney(po.total ?? 0)} ETB
                 </CardDescription>
               </div>
-              {canReceive &&
-                ["approved", "partially_received"].includes(po.status) && (
-                  <ReceiveOrderDialog po={po} />
-                )}
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => printPurchaseOrder(po)}>
+                  <Printer className="mr-2 h-4 w-4" />Print PO
+                </Button>
+                {canReceive && ["approved", "partially_received"].includes(po.status) && <ReceiveOrderDialog po={po} />}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -936,8 +967,34 @@ function ReceiveOrderForm({
   const mutation = useMutation({
     mutationFn: (payload: any) =>
       procurementService.receivePurchaseOrder(po.id, payload, "stock-keeper"),
-    onSuccess: () => {
+    onSuccess: (result: any) => {
       toast.success("Ordered items received into inventory");
+      const receiving = result?.receiving;
+      printBusinessDocument({
+        title: "Goods Receiving Note",
+        reference: `GRN-${String(receiving?.id ?? "").padStart(6, "0")}`,
+        details: [
+          ["Purchase order", po.po_number ?? `PO-${po.id}`],
+          ["Supplier", po.supplier?.name ?? "—"],
+          ["Received at", receiving?.received_at ? new Date(receiving.received_at).toLocaleString() : new Date().toLocaleString()],
+          ["Status", receiving?.status ?? "approved"],
+        ],
+        columns: [
+          { key: "item", label: "Inventory item" },
+          { key: "quantity", label: "Quantity received", align: "right" },
+          { key: "unitCost", label: "Unit cost (ETB)", align: "right" },
+          { key: "total", label: "Total (ETB)", align: "right" },
+          { key: "expiry", label: "Expiry date" },
+        ],
+        rows: (receiving?.items ?? []).map((item: any) => ({
+          item: item.inventory_item?.name ?? `Item #${item.inventory_item_id}`,
+          quantity: `${item.quantity_received} ${item.base_unit ?? ""}`,
+          unitCost: formatMoney(item.unit_cost),
+          total: formatMoney(Number(item.quantity_received) * Number(item.unit_cost)),
+          expiry: item.expiry_date ?? "—",
+        })),
+        footer: "Goods received against an approved purchase order. Retain with delivery documentation.",
+      });
       qc.invalidateQueries({ queryKey: ["procurement"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
       onDone?.();

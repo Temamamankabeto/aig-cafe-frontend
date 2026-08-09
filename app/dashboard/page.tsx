@@ -7,8 +7,9 @@ export default function DashboardIndexPage() {
   const router = useRouter();
   useEffect(() => {
     const user = authService.getStoredUser();
-    const role = authService.getStoredRoles()[0] ?? user?.role ?? "Cafeteria Manager";
-    router.replace(getDashboardForRole(role).route);
+    const role = authService.getStoredRoles()[0] ?? user?.role;
+    const dashboard = getDashboardForRole(role);
+    router.replace(dashboard?.route ?? "/login");
   }, [router]);
   return null;
 }

@@ -168,11 +168,15 @@ function extractRecipeIntegrity(body: unknown): {
 
 export type InventoryRoleScope =
   | "admin"
+  | "manager"
+  | "finance"
   | "food-controller"
   | "stock-keeper"
   | "purchaser";
 
 function rolePrefix(roleScope: InventoryRoleScope = "admin") {
+  if (roleScope === "manager") return "/manager";
+  if (roleScope === "finance") return "/finance";
   if (roleScope === "food-controller") return "/food-controller";
   if (roleScope === "stock-keeper") return "/stock-keeper";
   if (roleScope === "purchaser") return "/purchaser";

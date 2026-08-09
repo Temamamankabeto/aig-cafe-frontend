@@ -206,7 +206,7 @@ export default function FBControllerDashboardPage() {
             F&B controller analytics dashboard
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">F & B Controller Dashboard</h1>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">F&B Controller Dashboard</h1>
             <p className="text-sm text-muted-foreground">
               Live purchase validation workload, recipe integrity, stock risk, and kitchen/bar readiness.
             </p>

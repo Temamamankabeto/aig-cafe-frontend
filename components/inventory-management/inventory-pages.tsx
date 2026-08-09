@@ -13,6 +13,7 @@ import {
   Package,
   PackageCheck,
   Plus,
+  Printer,
   RefreshCcw,
   Search,
   SlidersHorizontal,
@@ -77,7 +78,7 @@ import {
   formatNumber,
 } from "@/lib/inventory-management";
 import { RecipesTabPage } from "@/components/inventory-management/recipes-tab-page";
-import { can, inventoryPermissions } from "@/lib/auth/permissions";
+import { can, getStoredRoles, inventoryPermissions } from "@/lib/auth/permissions";
 import {
   useAdjustStockMutation,
   useCreateInventoryItemMutation,
@@ -100,6 +101,7 @@ import type {
   InventoryItem,
   RecipeIngredient,
 } from "@/types/inventory-management";
+import { printBusinessDocument } from "@/lib/print-documents";
 
 type Scope = "admin" | "food-controller" | "stock-keeper";
 const unitOptions: Array<{ value: BaseUnit; label: string; help: string }> = [
@@ -1238,9 +1240,17 @@ export function InventoryReportPage({
 }: {
   type: "low-stock" | "valuation" | "recipe-integrity" | "reports";
 }) {
-  const lowStock = useLowStockQuery();
-  const valuation = useStockValuationQuery();
-  const integrity = useRecipeIntegrityQuery();
+  const roleNames = getStoredRoles().map((role) => role.toLowerCase());
+  const reportScope = roleNames.includes("general admin")
+    ? "admin"
+    : roleNames.includes("manager")
+      ? "manager"
+      : roleNames.includes("finance")
+        ? "finance"
+        : "food-controller";
+  const lowStock = useLowStockQuery(reportScope);
+  const valuation = useStockValuationQuery(reportScope);
+  const integrity = useRecipeIntegrityQuery(reportScope);
   const valuationRows = valuation.data?.rows ?? [];
   const totalValue =
     valuation.data?.total_value ??
@@ -1248,6 +1258,69 @@ export function InventoryReportPage({
       (sum, row) => sum + Number(row.stock_value ?? row.value ?? 0),
       0,
     );
+
+  function printCurrentReport() {
+    if (type === "low-stock") {
+      const rows = lowStock.data ?? [];
+      printBusinessDocument({
+        title: "Low Stock Report",
+        columns: [
+          { key: "item", label: "Inventory item" },
+          { key: "current", label: "Current stock", align: "right" },
+          { key: "minimum", label: "Minimum stock", align: "right" },
+          { key: "shortage", label: "Shortage", align: "right" },
+        ],
+        rows: rows.map((row) => ({
+          item: itemName(row),
+          current: formatBaseQuantity(row.current_stock, itemUnit(row)),
+          minimum: formatBaseQuantity(row.minimum_quantity, itemUnit(row)),
+          shortage: formatBaseQuantity(Math.max(Number(row.minimum_quantity ?? 0) - Number(row.current_stock ?? 0), 0), itemUnit(row)),
+        })),
+        summary: [["Low-stock items", rows.length]],
+      });
+      return;
+    }
+
+    if (type === "valuation") {
+      printBusinessDocument({
+        title: "Stock Valuation Report",
+        columns: [
+          { key: "item", label: "Inventory item" },
+          { key: "stock", label: "Current stock", align: "right" },
+          { key: "price", label: "Average price (ETB)", align: "right" },
+          { key: "value", label: "Stock value (ETB)", align: "right" },
+        ],
+        rows: valuationRows.map((row) => ({
+          item: itemName(row),
+          stock: formatBaseQuantity(row.current_stock, itemUnit(row)),
+          price: formatMoney(row.average_purchase_price),
+          value: formatMoney(row.stock_value ?? row.value ?? 0),
+        })),
+        summary: [["Total stock value", `${formatMoney(totalValue)} ETB`]],
+      });
+      return;
+    }
+
+    const rows = integrity.data?.rows ?? [];
+    printBusinessDocument({
+      title: "Recipe Integrity Report",
+      columns: [
+        { key: "item", label: "Menu item" },
+        { key: "mode", label: "Tracking mode" },
+        { key: "recipe", label: "Recipe" },
+        { key: "ingredients", label: "Ingredients", align: "right" },
+        { key: "issue", label: "Control issue" },
+      ],
+      rows: rows.map((row) => ({
+        item: row.menu_item_name ?? row.name ?? "—",
+        mode: row.inventory_tracking_mode ?? row.menu_item_type ?? "—",
+        recipe: row.recipe_id ? `#${row.recipe_id}` : "Missing",
+        ingredients: row.ingredient_count ?? 0,
+        issue: row.issue ?? (Number(row.missing_inventory_links ?? 0) > 0 ? "Missing inventory link" : "Review required"),
+      })),
+      summary: [["Rows reviewed", rows.length]],
+    });
+  }
 
   if (type === "low-stock" && !canViewLowStock())
     return (
@@ -1319,6 +1392,11 @@ export function InventoryReportPage({
               : CookingPot
         }
       />
+      <div className="flex justify-end print:hidden">
+        <Button type="button" variant="outline" onClick={printCurrentReport}>
+          <Printer className="mr-2 h-4 w-4" />Print report
+        </Button>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>

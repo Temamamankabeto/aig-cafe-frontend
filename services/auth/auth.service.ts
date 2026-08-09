@@ -21,6 +21,44 @@ type LoginResponse = {
   data?: LoginResponse;
 };
 
+const CANONICAL_ROLES = [
+  "General Admin",
+  "Manager",
+  "F&B Controller",
+  "Finance",
+  "Purchaser",
+  "Store Keeper",
+  "Cashier",
+  "Kitchen Staff",
+  "Barman",
+  "Waiter",
+  "Customer",
+] as const;
+
+const ROLE_ALIASES: Record<string, (typeof CANONICAL_ROLES)[number]> = {
+  admin: "General Admin",
+  "general administrator": "General Admin",
+  "cafeteria manager": "Manager",
+  "finance manager": "Finance",
+  "f and b controller": "F&B Controller",
+  "food controller": "F&B Controller",
+};
+
+function normalizeRoleValue(value: string) {
+  return value.trim().toLowerCase().replace(/&/g, "and").replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+
+export function canonicalRoleName(value?: string | null): string | null {
+  if (!value) return null;
+  const normalized = normalizeRoleValue(value);
+  const canonical = CANONICAL_ROLES.find((role) => normalizeRoleValue(role) === normalized);
+  return canonical ?? ROLE_ALIASES[normalized] ?? null;
+}
+
+function canonicalRoles(roles: string[]) {
+  return [...new Set(roles.map((role) => canonicalRoleName(role)).filter((role): role is string => Boolean(role)))];
+}
+
 function normalizeLoginResponse(response: unknown): LoginResponse {
   const value = response as { data?: LoginResponse } | LoginResponse;
   return "data" in value && value.data ? value.data : (value as LoginResponse);
@@ -73,7 +111,7 @@ export const authService = {
     if (typeof window === "undefined") return;
     const token = response.token ?? response.access_token ?? response.data?.token ?? response.data?.access_token;
     const user = response.user ?? response.data?.user ?? null;
-    const roles = response.roles ?? response.data?.roles ?? user?.roles ?? (user?.role ? [user.role] : []);
+    const roles = canonicalRoles(response.roles ?? response.data?.roles ?? user?.roles ?? (user?.role ? [user.role] : []));
     const permissions = response.permissions ?? response.data?.permissions ?? user?.permissions ?? [];
 
     if (token) {
@@ -98,7 +136,12 @@ export const authService = {
 
   getStoredRoles(): string[] {
     if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem("roles") || "[]"); } catch { return []; }
+    try {
+      const roles = JSON.parse(localStorage.getItem("roles") || "[]");
+      return Array.isArray(roles) ? canonicalRoles(roles.map(String)) : [];
+    } catch {
+      return [];
+    }
   },
 
   getStoredPermissions(): string[] {

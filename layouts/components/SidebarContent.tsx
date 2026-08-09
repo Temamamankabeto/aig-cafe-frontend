@@ -25,7 +25,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
   const pathname = usePathname();
   const user = authService.getStoredUser();
   const roles = authService.getStoredRoles();
-  const role = roles[0] ?? user?.role ?? "Cafeteria Manager";
+  const role = roles[0] ?? user?.role;
   const roleKey = normalizeRole(role);
   const permissions = authService.getStoredPermissions();
 
