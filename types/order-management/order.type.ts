@@ -27,7 +27,7 @@ export type ApiEnvelope<T> = {
   data: T;
 };
 
-export type OrderScope = "waiter" | "cashier" | "admin" | "public";
+export type OrderScope = "waiter" | "cashier" | "admin" | "public" | "manager" | "food-controller";
 export type PaymentType = "cash" | "card" | "mobile" | "transfer" | "credit" | "regular";
 export type PaymentMethod = Exclude<PaymentType, "credit" | "regular">;
 export type OrderType = "dine_in" | "takeaway" | "delivery";
@@ -60,6 +60,7 @@ export type OrderFilters = {
   page?: number;
   per_page?: number;
   active?: boolean | number | string;
+  report?: boolean | number;
 };
 
 export type MenuFilters = {
@@ -244,6 +245,8 @@ export type PaymentPayload = {
   payment_method: PaymentMethod;
   reference_number?: string | null;
   notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 export type Payment = {
@@ -370,6 +373,18 @@ export type CreditOrder = {
   status?: CreditStatus;
   due_date?: string | null;
   created_at?: string;
+  settlements?: CreditSettlement[];
+};
+
+export type CreditSettlement = {
+  id: Id;
+  amount: number | string;
+  payment_method?: string;
+  reference_number?: string | null;
+  status?: "pending_approval" | "approved" | "rejected" | string;
+  settled_at?: string;
+  receiver?: LiteUser | null;
+  approver?: LiteUser | null;
 };
 
 export type ConvertCreditPayload = {
@@ -392,6 +407,7 @@ export type TicketStatus = "pending" | "confirmed" | "preparing" | "ready" | "se
 
 export type PrepTicket = {
   id?: Id;
+  ticket_number?: string;
   kitchen_ticket_id?: Id;
   bar_ticket_id?: Id;
   ticket_status?: TicketStatus | string;
@@ -414,6 +430,8 @@ export type PrepTicket = {
   waiter?: LiteUser | null;
   table?: LiteTable | null;
   notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type PackageOrderStatus = "draft" | "quoted" | "approved" | "scheduled" | "preparing" | "ready" | "delivered" | "completed" | "cancelled";

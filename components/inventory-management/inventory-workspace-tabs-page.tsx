@@ -61,6 +61,11 @@ export function InventoryWorkspaceTabsPage({
   const isFbController = roleKey === "fb-controller";
   const isPurchaser = roleKey === "purchaser";
   const isStockKeeper = roleKey === "stock-keeper";
+  const resolvedScope: Scope = isStockKeeper
+    ? "stock-keeper"
+    : roleKey === "general-admin"
+      ? "admin"
+      : scope;
 
   const canSeePurchaseTab =
     (isManager &&
@@ -144,19 +149,19 @@ export function InventoryWorkspaceTabsPage({
       value: "items",
       label: "Inventory Items",
       show: can(inventoryPermissions.read),
-      content: <InventoryItemsSiPage scope={scope} />,
+      content: <InventoryItemsSiPage scope={resolvedScope} />,
     },
     {
       value: "recipes",
       label: "Recipes",
       show: can(inventoryPermissions.recipesRead),
-      content: <RecipesTabPage scope={scope} />,
+      content: <RecipesTabPage scope={resolvedScope} />,
     },
     {
       value: "low-stock",
       label: "Low Stock",
       show: can(inventoryPermissions.lowStock),
-      content: <LowStockTabPage />,
+      content: <LowStockTabPage scope={resolvedScope} />,
     },
     {
       value: "valuation",

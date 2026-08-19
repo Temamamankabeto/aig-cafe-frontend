@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   UserRound,
+  PackageCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -160,6 +161,12 @@ export default function DashboardHeader({
             <UserRound className="mr-2 h-4 w-4" />
             Profile
           </DropdownMenuItem>
+          {user?.department_id && (
+            <DropdownMenuItem onClick={() => router.push("/dashboard/my-department-stock")}>
+              <PackageCheck className="mr-2 h-4 w-4" />
+              My Department Stock
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem variant="destructive" onClick={logout}>
             <LogOut className="mr-2 h-4 w-4" />
             Logout

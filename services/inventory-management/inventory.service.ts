@@ -14,6 +14,12 @@ import type {
   RecipePayload,
   StockAdjustmentPayload,
   DepartmentStockoutPayload,
+  Department,
+  DepartmentPayload,
+  DepartmentUser,
+  ReturnToStorePayload,
+  StockBalanceRow,
+  StockCard,
   StockValuationRow,
   TransferPayload,
   WastePayload,
@@ -321,6 +327,144 @@ export const inventoryService = {
     return unwrap<ApiEnvelope<InventoryTransaction>>(response);
   },
 
+  async departments(
+    params: { search?: string; is_active?: boolean; per_page?: number } = {},
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.get(`${rolePrefix(roleScope)}/departments`, { params: cleanParams(params) });
+    return paginated<Department>(response.data);
+  },
+
+  async departmentUsers(departmentId: number | string) {
+    const response = await api.get(`/stock-keeper/departments/${departmentId}/users`);
+    return extractRows<DepartmentUser>(response.data);
+  },
+
+  async myDepartmentIssues(params: { per_page?: number } = {}) {
+    const response = await api.get("/inventory-custody/issues", { params: cleanParams(params) });
+    return paginated<InventoryTransaction>(response.data);
+  },
+
+  async acknowledgeDepartmentIssue(issueId: number | string) {
+    const response = await api.post(`/inventory-custody/issues/${issueId}/acknowledge`);
+    return unwrap<ApiEnvelope<InventoryTransaction>>(response);
+  },
+
+  async recordDepartmentUse(issueId: number | string, payload: { quantity: number; note?: string }) {
+    const response = await api.post(`/inventory-custody/issues/${issueId}/use`, payload);
+    return unwrap<ApiEnvelope<InventoryTransaction>>(response);
+  },
+
+  async requestDepartmentReturn(issueId: number | string, payload: { quantity: number; reason: string }) {
+    const response = await api.post(`/inventory-custody/issues/${issueId}/request-return`, payload);
+    return unwrap<ApiEnvelope<InventoryTransaction>>(response);
+  },
+
+  async requestableStockItems() {
+    const response = await api.get("/inventory-custody/request-items");
+    return extractRows<InventoryItem>(response.data);
+  },
+
+  async myStockoutRequests() {
+    const response = await api.get("/inventory-custody/stockout-requests", { params: { per_page: 100 } });
+    return paginated<any>(response.data);
+  },
+
+  async createStockoutRequest(payload: { inventory_item_id: number | string; quantity: number; reason: string }) {
+    const response = await api.post("/inventory-custody/stockout-requests", payload);
+    return unwrap<ApiEnvelope<any>>(response);
+  },
+
+  async stockoutRequestQueue(scope: "food-controller" | "stock-keeper", status = "all") {
+    const response = await api.get(`/${scope}/stockout-requests`, { params: { status: status === "all" ? undefined : status, per_page: 100 } });
+    return paginated<any>(response.data);
+  },
+
+  async validateStockoutRequest(id: number | string, note?: string) {
+    const response = await api.post(`/food-controller/stockout-requests/${id}/validate`, { validation_note: note || undefined });
+    return unwrap<ApiEnvelope<any>>(response);
+  },
+
+  async rejectStockoutRequest(id: number | string, validation_note: string) {
+    const response = await api.post(`/food-controller/stockout-requests/${id}/reject`, { validation_note });
+    return unwrap<ApiEnvelope<any>>(response);
+  },
+
+  async issueStockoutRequest(id: number | string) {
+    const response = await api.post(`/stock-keeper/stockout-requests/${id}/issue`);
+    return unwrap<ApiEnvelope<any>>(response);
+  },
+
+  async departmentConsumptionReport(scope: "department" | "food-controller", filters: { date_from?: string; date_to?: string; inventory_item_id?: string | number; approval_status?: string } = {}) {
+    const endpoint = scope === "department" ? "/inventory-custody/consumption-report" : "/food-controller/consumption-report";
+    const response = await api.get(endpoint, { params: { ...cleanParams(filters), per_page: 100 } });
+    return paginated<any>(response.data);
+  },
+
+  async approveConsumptions(payload: { selection_mode: "selected" | "filtered"; consumption_ids?: Array<number | string>; date_from?: string; date_to?: string; inventory_item_id?: string | number }) {
+    const response = await api.post("/food-controller/consumption-report/approve", payload);
+    return unwrap<ApiEnvelope<{ approval_batch: string; approved_count: number; total_cost: number }>>(response);
+  },
+
+  async createDepartment(
+    payload: DepartmentPayload,
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.post(`${rolePrefix(roleScope)}/departments`, payload);
+    return unwrap<ApiEnvelope<Department>>(response);
+  },
+
+  async updateDepartment(
+    id: number | string,
+    payload: Partial<DepartmentPayload>,
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.put(`${rolePrefix(roleScope)}/departments/${id}`, payload);
+    return unwrap<ApiEnvelope<Department>>(response);
+  },
+
+  async deleteDepartment(
+    id: number | string,
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.delete(`${rolePrefix(roleScope)}/departments/${id}`);
+    return unwrap<ApiEnvelope<null>>(response);
+  },
+
+  async stockBalances(
+    params: InventoryListParams = {},
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.get(`${rolePrefix(roleScope)}/inventory/stock-balances`, { params: cleanParams(params) });
+    return paginated<StockBalanceRow>(response.data);
+  },
+
+  async returnableIssues(
+    params: InventoryListParams = {},
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.get(`${rolePrefix(roleScope)}/inventory/returnable-issues`, { params: cleanParams(params) });
+    return paginated<InventoryTransaction>(response.data);
+  },
+
+  async returnToStore(
+    issueId: number | string,
+    payload: ReturnToStorePayload,
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.post(`${rolePrefix(roleScope)}/inventory/issues/${issueId}/return`, payload);
+    return unwrap<ApiEnvelope<{ item: InventoryItem; transaction: InventoryTransaction; remaining_returnable_quantity: number }>>(response);
+  },
+
+  async stockCard(
+    itemId: number | string,
+    params: { from?: string; to?: string } = {},
+    roleScope: InventoryRoleScope = "stock-keeper",
+  ) {
+    const response = await api.get(`${rolePrefix(roleScope)}/inventory/items/${itemId}/stock-card`, { params: cleanParams(params) });
+    return unwrap<ApiEnvelope<StockCard>>(response).data;
+  },
+
   async transferItem(
     id: number | string,
     payload: TransferPayload,
@@ -400,6 +544,17 @@ export const inventoryService = {
   },
 
   async lowStock(roleScope: InventoryRoleScope = "food-controller") {
+    // Store Keeper must read low-stock rows from the same inventory source used
+    // by the Inventory Items page. This prevents report/item query drift and
+    // includes every item where current_stock <= minimum_quantity.
+    if (roleScope === "stock-keeper") {
+      const response = await api.get(
+        `${rolePrefix(roleScope)}/inventory/items`,
+        { params: { status: "low_stock", per_page: 200 } },
+      );
+      return extractRows<LowStockRow>(response.data);
+    }
+
     const response = await api.get(
       `${rolePrefix(roleScope)}/reports/low-stock`,
     );

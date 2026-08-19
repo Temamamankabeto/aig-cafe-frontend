@@ -42,13 +42,11 @@ export function clearSession() {
   localStorage.removeItem("user");
   localStorage.removeItem("roles");
   localStorage.removeItem("permissions");
-  localStorage.removeItem("refresh_token");
 
   document.cookie = "token=; Path=/; Max-Age=0; SameSite=Lax";
   document.cookie = "roles=; Path=/; Max-Age=0; SameSite=Lax";
   document.cookie = "permissions=; Path=/; Max-Age=0; SameSite=Lax";
   document.cookie = "user=; Path=/; Max-Age=0; SameSite=Lax";
-  document.cookie = "refresh_token=; Path=/; Max-Age=0; SameSite=Lax";
 }
 
 const api = axios.create({
@@ -78,20 +76,13 @@ async function refreshAccessToken() {
 
   if (!refreshPromise) {
     refreshPromise = refreshClient
-      .post("/auth/refresh", {
-        refresh_token: localStorage.getItem("refresh_token"),
-      })
+      .post("/auth/refresh")
       .then((response) => {
-        const token = response.data?.token ?? response.data?.access_token;
-        const refreshToken = response.data?.refresh_token;
+        const token = response.data?.data?.token ?? response.data?.token ?? response.data?.access_token;
 
         if (!token) return null;
 
         saveAccessToken(token);
-
-        if (refreshToken) {
-          localStorage.setItem("refresh_token", refreshToken);
-        }
 
         return token as string;
       })

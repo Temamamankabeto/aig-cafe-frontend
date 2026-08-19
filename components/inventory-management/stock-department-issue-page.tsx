@@ -15,8 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatBaseQuantity } from "@/lib/inventory-management";
 import inventoryService from "@/services/inventory-management/inventory.service";
 import type { InventoryItem, InventoryTransaction } from "@/types/inventory-management";
-
-const DEPARTMENTS = ["Kitchen", "Bar", "Restaurant", "Housekeeping", "Maintenance", "Finance", "Management", "Other"];
+import { StockoutRequestQueuePage } from "@/components/inventory-management/stockout-request-queue-page";
 
 function itemUnit(item?: Pick<InventoryItem, "base_unit" | "unit"> | null) {
   return item?.base_unit ?? item?.unit ?? "pcs";
@@ -52,6 +51,7 @@ function RecentStockoutTable({ rows, loading }: { rows: InventoryTransaction[]; 
             <TableHead>Item</TableHead>
             <TableHead>Quantity</TableHead>
             <TableHead>Department / note</TableHead>
+            <TableHead>Responsible user</TableHead>
             <TableHead>Date</TableHead>
           </TableRow>
         </TableHeader>
@@ -62,7 +62,8 @@ function RecentStockoutTable({ rows, loading }: { rows: InventoryTransaction[]; 
               <TableRow key={row.id}>
                 <TableCell className="font-medium">{itemName(item)}</TableCell>
                 <TableCell>{formatBaseQuantity(row.quantity, itemUnit(item))}</TableCell>
-                <TableCell className="max-w-[360px] truncate">{row.note ?? row.reason ?? "—"}</TableCell>
+                <TableCell className="max-w-[360px]"><span className="font-medium">{row.department?.name ?? "Department"}</span><span className="block truncate text-xs text-muted-foreground">{row.note ?? row.reason ?? "—"}</span></TableCell>
+                <TableCell><span className="font-medium">{row.responsible_user?.name ?? "—"}</span><span className="block text-xs text-muted-foreground">{row.custody_status?.replaceAll("_", " ") ?? "Legacy issue"}</span></TableCell>
                 <TableCell>{row.created_at ? new Date(row.created_at).toLocaleString() : "—"}</TableCell>
               </TableRow>
             );
@@ -79,7 +80,21 @@ export function StockDepartmentIssuePage() {
   const [itemId, setItemId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [department, setDepartment] = useState("");
+  const [responsibleUserId, setResponsibleUserId] = useState("");
   const [reason, setReason] = useState("");
+
+  const departmentsQuery = useQuery({
+    queryKey: ["inventory", "departments", "active"],
+    queryFn: () => inventoryService.departments({ is_active: true, per_page: 200 }, "stock-keeper"),
+    staleTime: 30000,
+  });
+
+  const departmentUsersQuery = useQuery({
+    queryKey: ["inventory", "departments", department, "users"],
+    queryFn: () => inventoryService.departmentUsers(department),
+    enabled: Boolean(department),
+    staleTime: 30000,
+  });
 
   const itemsQuery = useQuery({
     queryKey: ["inventory", "stockout", "items"],
@@ -96,7 +111,8 @@ export function StockDepartmentIssuePage() {
   const stockout = useMutation({
     mutationFn: () => inventoryService.stockOutItem(itemId, {
       quantity: Number(quantity),
-      department,
+      department_id: department,
+      responsible_user_id: responsibleUserId,
       reason: reason.trim(),
     }, "stock-keeper"),
     onSuccess: () => {
@@ -104,6 +120,7 @@ export function StockDepartmentIssuePage() {
       setItemId("");
       setQuantity("");
       setDepartment("");
+      setResponsibleUserId("");
       setReason("");
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
     },
@@ -111,6 +128,8 @@ export function StockDepartmentIssuePage() {
   });
 
   const items = itemsQuery.data?.data ?? [];
+  const departments = departmentsQuery.data?.data ?? [];
+  const departmentUsers = departmentUsersQuery.data ?? [];
   const selectedItem = items.find((item) => String(item.id) === itemId);
   const quantityNumber = Number(quantity || 0);
   const exceedsStock = selectedItem ? quantityNumber > Number(selectedItem.current_stock ?? 0) : false;
@@ -122,7 +141,7 @@ export function StockDepartmentIssuePage() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!itemId || !department || !reason.trim() || quantityNumber <= 0 || exceedsStock) return;
+    if (!itemId || !department || !responsibleUserId || !reason.trim() || quantityNumber <= 0 || exceedsStock) return;
     stockout.mutate();
   }
 
@@ -140,6 +159,8 @@ export function StockDepartmentIssuePage() {
         </div>
         <Badge variant="secondary" className="w-fit">Store Keeper</Badge>
       </div>
+
+      <StockoutRequestQueuePage mode="issue" />
 
       <div className="grid gap-4 xl:grid-cols-[430px_1fr]">
         <Card className="rounded-2xl">
@@ -181,21 +202,33 @@ export function StockDepartmentIssuePage() {
 
                 <div className="space-y-2">
                   <Label>Department</Label>
-                  <Select value={department} onValueChange={setDepartment}>
+                  <Select value={department} onValueChange={(value) => { setDepartment(value); setResponsibleUserId(""); }}>
                     <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                     <SelectContent>
-                      {DEPARTMENTS.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+                      {departments.map((row) => <SelectItem key={row.id} value={String(row.id)}>{row.name}{row.code ? ` (${row.code})` : ""}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  {!departmentsQuery.isLoading && !departments.length && <p className="text-xs text-destructive">No active departments. Ask General Admin to create or activate a department.</p>}
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label>Reason / issued to</Label>
+                <Label>Responsible user</Label>
+                <Select value={responsibleUserId} onValueChange={setResponsibleUserId} disabled={!department || departmentUsersQuery.isLoading}>
+                  <SelectTrigger><SelectValue placeholder={!department ? "Select department first" : "Select responsible user"} /></SelectTrigger>
+                  <SelectContent>
+                    {departmentUsers.map((user) => <SelectItem key={user.id} value={String(user.id)}>{user.name}{user.phone ? ` — ${user.phone}` : ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {department && !departmentUsersQuery.isLoading && !departmentUsers.length && <p className="text-xs text-destructive">No active users are assigned to this department. General Admin must assign one first.</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Purpose / reason</Label>
                 <Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: issued to kitchen for daily production" />
               </div>
 
-              <Button className="w-full" disabled={stockout.isPending || !itemId || !department || !reason.trim() || quantityNumber <= 0 || exceedsStock} type="submit">
+              <Button className="w-full" disabled={stockout.isPending || !itemId || !department || !responsibleUserId || !reason.trim() || quantityNumber <= 0 || exceedsStock} type="submit">
                 <ClipboardList className="mr-2 h-4 w-4" />
                 Save stockout
               </Button>

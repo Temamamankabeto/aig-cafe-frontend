@@ -23,6 +23,38 @@ export function usePaymentQuery(id?: number | string, scope: Scope = "admin") {
   });
 }
 
+export function useFinancePaymentsQuery(filters: PaymentFilters = {}) {
+  return useQuery({
+    queryKey: ["finance", "cashier-payments", filters],
+    queryFn: () => paymentService.financeList(filters),
+  });
+}
+
+export function useMarkFinancePaymentReceivedMutation(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, receipt, note }: { id: number | string; receipt: File; note?: string }) =>
+      paymentService.markFinanceReceived(id, receipt, note),
+    onSuccess: () => {
+      toast.success("Payment marked as received");
+      qc.invalidateQueries({ queryKey: ["finance", "cashier-payments"] });
+      onSuccess?.();
+    },
+  });
+}
+
+export function useApproveFinancePaymentsMutation(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: paymentService.approveFinancePayments,
+    onSuccess: (response) => {
+      toast.success(response.message || "Cashier payments approved");
+      qc.invalidateQueries({ queryKey: ["finance", "cashier-payments"] });
+      onSuccess?.();
+    },
+  });
+}
+
 export function useCreatePaymentMutation(scope: Scope = "admin", onSuccess?: () => void) {
   const qc = useQueryClient();
   return useMutation({

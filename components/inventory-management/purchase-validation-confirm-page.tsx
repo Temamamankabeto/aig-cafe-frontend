@@ -128,7 +128,22 @@ export function PurchaseValidationConfirmPage() {
       <Card>
         <CardHeader><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><CardTitle>Submitted requests</CardTitle><CardDescription>Click Validate, review the request, then Confirm validation.</CardDescription></div><div className="relative md:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder="Search PO or supplier..." /></div></div></CardHeader>
         <CardContent>
-          {query.isLoading ? <p className="text-sm text-muted-foreground">Loading purchase requests...</p> : rows.length ? <Table><TableHeader><TableRow><TableHead>PO</TableHead><TableHead>Supplier</TableHead><TableHead>Status</TableHead><TableHead>Items</TableHead><TableHead>Total</TableHead><TableHead>Expected</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>{rows.map((po) => <TableRow key={po.id}><TableCell className="font-medium">{po.po_number ?? `PO-${po.id}`}</TableCell><TableCell>{po.supplier?.name ?? `Supplier #${po.supplier_id}`}</TableCell><TableCell>{statusBadge(po.status)}</TableCell><TableCell>{po.items?.length ?? 0}</TableCell><TableCell>{formatMoney(po.total ?? 0)} ETB</TableCell><TableCell>{po.expected_date ?? "—"}</TableCell><TableCell className="text-right"><ConfirmValidationDialog po={po} /></TableCell></TableRow>)}</TableBody></Table> : <div className="rounded-xl border border-dashed p-8 text-center"><p className="font-medium">No submitted purchase requests</p><p className="mt-1 text-sm text-muted-foreground">Submitted purchase requests waiting for Food Controller validation will appear here.</p></div>}
+          {query.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading purchase requests...</p>
+          ) : query.isError ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+              <p className="font-medium text-destructive">Could not load submitted purchase requests</p>
+              <p className="mt-1 text-sm text-muted-foreground">Check the F&amp;B Controller purchase-order read authorization, then try again.</p>
+              <Button className="mt-4" variant="outline" onClick={() => query.refetch()}>Try again</Button>
+            </div>
+          ) : rows.length ? (
+            <Table>
+              <TableHeader><TableRow><TableHead>PO</TableHead><TableHead>Supplier</TableHead><TableHead>Status</TableHead><TableHead>Items</TableHead><TableHead>Total</TableHead><TableHead>Expected</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+              <TableBody>{rows.map((po) => <TableRow key={po.id}><TableCell className="font-medium">{po.po_number ?? `PO-${po.id}`}</TableCell><TableCell>{po.supplier?.name ?? `Supplier #${po.supplier_id}`}</TableCell><TableCell>{statusBadge(po.status)}</TableCell><TableCell>{po.items?.length ?? 0}</TableCell><TableCell>{formatMoney(po.total ?? 0)} ETB</TableCell><TableCell>{po.expected_date ?? "—"}</TableCell><TableCell className="text-right"><ConfirmValidationDialog po={po} /></TableCell></TableRow>)}</TableBody>
+            </Table>
+          ) : (
+            <div className="rounded-xl border border-dashed p-8 text-center"><p className="font-medium">No submitted purchase requests</p><p className="mt-1 text-sm text-muted-foreground">Submitted purchase requests waiting for Food Controller validation will appear here.</p></div>
+          )}
         </CardContent>
       </Card>
     </div>

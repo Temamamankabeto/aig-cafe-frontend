@@ -16,6 +16,10 @@ type SidebarContentProps = {
   collapsed?: boolean;
 };
 
+function isRouteActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 function MiniBadge({ value }: { value?: number }) {
   if (!value || value < 1) return null;
   return <Badge className="ml-2 h-5 min-w-5 justify-center rounded-full px-1.5 text-[10px]">{value > 99 ? "99+" : value}</Badge>;
@@ -103,10 +107,14 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
             <div className="space-y-1">
               {section.items.map((item) => {
                 const Icon = item.icon;
-                const active = item.href ? pathname === item.href : false;
+                const active = item.href ? isRouteActive(pathname, item.href) : false;
                 const hasChildren = Boolean(item.children?.length);
-                const childIsActive = Boolean(item.children?.some((child) => pathname === child.href));
-                const isOpen = openMenus[item.label] ?? childIsActive;
+                const childIsActive = Boolean(
+                  item.children?.some((child) => isRouteActive(pathname, child.href)),
+                );
+                const isOpen =
+                  openMenus[item.label] ??
+                  (childIsActive || item.children?.length === 1);
 
                 if (hasChildren) {
                   return (
@@ -137,7 +145,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
                       {!collapsed && isOpen && (
                         <div className="ml-6 space-y-1 border-l border-sidebar-border pl-2">
                           {item.children?.map((child) => {
-                            const childActive = pathname === child.href;
+                            const childActive = isRouteActive(pathname, child.href);
                             const badgeValue = purchaseBadgeValue(child.href);
                             return (
                               <Link

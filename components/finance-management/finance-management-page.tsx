@@ -5,6 +5,7 @@ import { ReceiptText, RefreshCcw, Search, WalletCards } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import api, { unwrap } from "@/lib/api";
 import { PaymentManagementPage } from "@/components/payment-management/payment-management-page";
+import { RefundManagementPage } from "@/components/refund-management/refund-management-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,7 +60,7 @@ function listBase(scope: Scope, resource: "bills" | "receipts") {
     return resource === "bills" ? "/cashier/bills" : "/cashier/payments";
   }
 
-  return resource === "bills" ? "/admin/bills" : "/admin/payments";
+  return resource === "bills" ? "/finance/bills" : "/admin/payments";
 }
 
 async function fetchList<T>(scope: Scope, resource: "bills" | "receipts", search: string, status?: string) {
@@ -67,7 +68,7 @@ async function fetchList<T>(scope: Scope, resource: "bills" | "receipts", search
     params: {
       search: search || undefined,
       status: resource === "receipts" ? "paid" : status,
-      per_page: 20,
+      per_page: 100,
     },
   });
 
@@ -228,6 +229,14 @@ function ReceiptsTab({ scope }: { scope: Scope }) {
 }
 
 export function FinanceManagementPage({ scope = "admin", initialTab = "payments", billStatus }: { scope?: Scope; initialTab?: "payments" | "bills" | "receipts"; billStatus?: string }) {
+  if (scope === "admin" && initialTab === "payments") {
+    return <PaymentManagementPage scope="admin" />;
+  }
+
+  if (scope === "admin" && initialTab === "bills") {
+    return <div className="space-y-4"><h1 className="text-2xl font-bold">Bills & Refunds</h1><Tabs defaultValue="bills"><TabsList><TabsTrigger value="bills">Bills</TabsTrigger><TabsTrigger value="refunds">Refunds</TabsTrigger></TabsList><TabsContent value="bills"><BillsTab scope="admin" statusFilter={billStatus}/></TabsContent><TabsContent value="refunds"><RefundManagementPage/></TabsContent></Tabs></div>;
+  }
+
   return (
     <div className="space-y-6">
       <div>

@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { MoreHorizontal, Plus, Printer, Search, ShoppingCart } from "lucide-react";
+import { toast } from "sonner";
+import api, { unwrap } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +60,8 @@ import {
 } from "@/hooks/queries/order-management";
 import {
   useApproveCreditOrderMutation,
+  useApproveCreditSettlementMutation,
+  useApproveVoidOrderMutation,
   useConfirmOrderMutation,
   useCreateCreditAccountMutation,
   useUpdateCreditAccountMutation,
@@ -81,7 +86,7 @@ import type {
   OrderItemPayload,
 } from "@/types/order-management";
 
-type Scope = "admin" | "waiter" | "cashier";
+type Scope = "admin" | "manager" | "food-controller" | "waiter" | "cashier";
 type Period = "today" | "this_week" | "this_month" | "this_year" | "custom";
 
 function money(v: unknown) {
@@ -213,7 +218,7 @@ function canServeOrder(status?: string | null) {
 }
 
 function canRequestCancelOrder(status?: string | null) {
-  return ["pending", "confirmed", "in_progress", "ready"].includes(
+  return ["submitted", "pending", "confirmed", "in_progress", "ready"].includes(
     String(status ?? "").toLowerCase(),
   );
 }
@@ -242,7 +247,7 @@ export function OrdersPage({
 
   const query = useOrdersQuery(
     filters,
-    scope === "cashier" ? "cashier" : scope === "waiter" ? "waiter" : "admin",
+    scope,
   );
   const rows = query.data?.data ?? [];
   const meta = query.data?.meta;
@@ -255,6 +260,11 @@ export function OrdersPage({
   const confirm = useConfirmOrderMutation();
   const serve = useServeOrderMutation();
   const cancel = useRequestCancelOrderMutation();
+  const isVoidApprover = ["admin", "manager", "food-controller"].includes(scope);
+  const approvalScope = isVoidApprover ? scope as "admin" | "manager" | "food-controller" : "admin";
+  const approveVoid = useApproveVoidOrderMutation(approvalScope);
+  const [voidOrder, setVoidOrder] = useState<Order | null>(null);
+  const [approvalReason, setApprovalReason] = useState("");
 
   const totals = useMemo(
     () => ({
@@ -287,12 +297,14 @@ export function OrdersPage({
           <Button variant="outline" asChild>
             <Link href="/dashboard/order-management/orders/sold-items">See ordered items</Link>
           </Button>
-          <Button asChild>
-            <Link href={createHref}>
-              <Plus className="mr-2 h-4 w-4" />
-              New order
-            </Link>
-          </Button>
+          {!isVoidApprover && (
+            <Button asChild>
+              <Link href={createHref}>
+                <Plus className="mr-2 h-4 w-4" />
+                New order
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -505,6 +517,11 @@ export function OrdersPage({
                         <TableCell>{waiterName}</TableCell>
                         <TableCell>
                           <StatusBadge status={order.status} />
+                          {order.status === "cancel_requested" && (
+                            <p className="mt-1 max-w-56 text-xs text-muted-foreground">
+                              {order.cancel_request_reason || "No cancellation reason provided"}
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell>
                           <StatusBadge status={(order as any).payment_status ?? order.bill?.status ?? "unpaid"} />
@@ -523,6 +540,16 @@ export function OrdersPage({
                               <DropdownMenuItem asChild>
                                 <Link href={detailHref}>Detail</Link>
                               </DropdownMenuItem>
+                              {isVoidApprover && order.status === "cancel_requested" && (
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setVoidOrder(order);
+                                    setApprovalReason(order.cancel_request_reason ?? "");
+                                  }}
+                                >
+                                  Approve void
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -573,6 +600,59 @@ export function OrdersPage({
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(voidOrder)} onOpenChange={(open) => !open && setVoidOrder(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Approve order void</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-muted/40 p-4 text-sm">
+              <p className="font-medium">{voidOrder?.order_number ?? `Order #${voidOrder?.id ?? ""}`}</p>
+              <p className="mt-1 text-muted-foreground">
+                Requested reason: {voidOrder?.cancel_request_reason || "No reason provided"}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="void-approval-reason">Approval reason</Label>
+              <Textarea
+                id="void-approval-reason"
+                value={approvalReason}
+                onChange={(event) => setApprovalReason(event.target.value)}
+                placeholder="Enter the reason for approving this void"
+                maxLength={1000}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setVoidOrder(null)} disabled={approveVoid.isPending}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!voidOrder || !approvalReason.trim() || approveVoid.isPending}
+                onClick={() => {
+                  if (!voidOrder) return;
+                  approveVoid.mutate(
+                    { id: voidOrder.id, reason: approvalReason.trim() },
+                    {
+                      onSuccess: () => {
+                        toast.success("Order void approved successfully");
+                        setVoidOrder(null);
+                        setApprovalReason("");
+                      },
+                      onError: (error) => {
+                        toast.error(error instanceof Error ? error.message : "Failed to approve order void");
+                      },
+                    },
+                  );
+                }}
+              >
+                {approveVoid.isPending ? "Approving..." : "Approve void"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1756,6 +1836,7 @@ export function OrderDetailPage({
   const updateItemMutation = useUpdateOrderItemMutation();
   const removeItemMutation = useRemoveOrderItemMutation();
   const receivePaymentMutation = useReceiveOrderPaymentMutation();
+  const requestVoidMutation = useRequestCancelOrderMutation();
 
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any | null>(null);
@@ -1767,6 +1848,11 @@ export function OrderDetailPage({
   });
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [ticketPreviewOpen, setTicketPreviewOpen] = useState(false);
+  const [requestVoidOpen, setRequestVoidOpen] = useState(false);
+  const [requestVoidReason, setRequestVoidReason] = useState("");
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
   const [paymentPayload, setPaymentPayload] = useState({
     customer_name: "Guest",
     customer_tin: "",
@@ -1779,6 +1865,11 @@ export function OrderDetailPage({
   const status = order?.status;
   const bill = (order as any)?.bill ?? (order as any)?.billing ?? null;
   const paymentStatus = (order as any)?.payment_status ?? bill?.status ?? "unpaid";
+  const isCreditOrder = String((order as any)?.payment_type ?? "cash").toLowerCase() === "credit";
+  const payments = [...((order as any)?.payments ?? []), ...(bill?.payments ?? [])];
+  const refundablePayment = payments.find((payment: any) => ["paid", "refunded"].includes(String(payment?.status).toLowerCase()));
+  const reservedRefund = (refundablePayment?.refund_requests ?? []).filter((refund: any) => ["requested", "approved", "processed"].includes(refund.status)).reduce((sum: number, refund: any) => sum + Number(refund.amount ?? 0), 0);
+  const refundableAmount = Math.max(0, Number(refundablePayment?.amount ?? 0) - reservedRefund);
   const orderType = String(order?.order_type ?? "—").replace(/_/g, " ");
   const orderTotal =
     order?.total ??
@@ -1806,9 +1897,16 @@ export function OrderDetailPage({
   const mustConfirmBeforePrintOrPayment = normalizedOrderStatus === "submitted";
   const canManageOrderItems = !paymentLocked && (isCashierScope || (isWaiterScope && normalizedOrderStatus === "submitted"));
   const canCashierPrintTicket = isCashierScope && !paymentLocked && !mustConfirmBeforePrintOrPayment;
-  const canReceiveOrderPayment = isCashierScope && !paymentLocked && !mustConfirmBeforePrintOrPayment;
+  const canReceiveOrderPayment = isCashierScope && !isCreditOrder && !paymentLocked && !mustConfirmBeforePrintOrPayment;
   const canCashierConfirmOrder = isCashierScope && canConfirmOrder(status);
   const canCashierServeOrder = isCashierScope && canServeOrder(status);
+  const canRequestVoid = isWaiterScope && !paymentLocked && canRequestCancelOrder(status);
+  const canRequestRefund = scope === "cashier" && !isCreditOrder && Boolean(refundablePayment) && refundableAmount > 0;
+  const requestRefundMutation = useMutation({
+    mutationFn: async () => unwrap(await api.post("/cashier/refunds", { payment_id: refundablePayment.id, amount: Number(refundAmount), reason: refundReason.trim() })),
+    onSuccess: () => { toast.success("Refund request submitted to Finance"); setRefundOpen(false); setRefundAmount(""); setRefundReason(""); query.refetch(); },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Refund request failed"),
+  });
 
   const menuQuery = useMenuItemsQuery(
     {
@@ -1940,7 +2038,9 @@ export function OrderDetailPage({
           <p className="text-muted-foreground">
             {isWaiterScope
               ? "Submitted orders are confirmed and paid by the cashier. Waiter can update items only before confirmation."
-              : "Print order ticket and receive payment directly from the order. No separate bill record is required."}
+              : isCreditOrder
+                ? "Credit payment is recorded by Finance and becomes effective after Manager approval."
+                : "Print order ticket and receive cash payment directly from the order. No separate bill record is required."}
           </p>
         </div>
         <Button variant="outline" asChild>
@@ -1980,7 +2080,7 @@ export function OrderDetailPage({
                   </CardDescription>
                 </div>
 
-                {(canManageOrderItems || canCashierPrintTicket || canReceiveOrderPayment || canCashierConfirmOrder || canCashierServeOrder) && (
+                {(canManageOrderItems || canCashierPrintTicket || canReceiveOrderPayment || canCashierConfirmOrder || canCashierServeOrder || canRequestVoid || canRequestRefund) && (
                   <div className="flex flex-wrap gap-2">
                     {canCashierPrintTicket && (
                       <Button size="sm" variant="outline" onClick={() => setTicketPreviewOpen(true)}>
@@ -2008,6 +2108,12 @@ export function OrderDetailPage({
                         Mark served
                       </Button>
                     )}
+                    {canRequestVoid && (
+                      <Button size="sm" variant="destructive" onClick={() => setRequestVoidOpen(true)}>
+                        Request Void
+                      </Button>
+                    )}
+                    {canRequestRefund && <Button size="sm" variant="destructive" onClick={() => { setRefundAmount(String(refundableAmount)); setRefundOpen(true); }}>Request refund</Button>}
                   </div>
                 )}
               </div>
@@ -2031,6 +2137,12 @@ export function OrderDetailPage({
                   <p className="mt-1 font-semibold">{money(orderTotal)}</p>
                 </div>
               </div>
+
+              {isCashierScope && isCreditOrder && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                  This is a credit order. The cashier cannot receive its payment. Finance records the payment, then a Manager approves it.
+                </div>
+              )}
 
               <div className="overflow-x-auto rounded-xl border">
                 <Table>
@@ -2211,6 +2323,79 @@ export function OrderDetailPage({
                   <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
                   <Button disabled={receivePaymentMutation.isPending || !canReceiveOrderPayment} onClick={handleReceivePayment}>
                     {receivePaymentMutation.isPending ? "Processing..." : "Receive payment"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={refundOpen} onOpenChange={setRefundOpen}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Request payment refund</DialogTitle></DialogHeader>
+              <div className="space-y-4">
+                <div className="rounded-xl border bg-muted/40 p-4 text-sm">Available refundable amount: <strong>{money(refundableAmount)}</strong></div>
+                <div className="space-y-2"><Label>Refund amount *</Label><Input type="number" min="0.01" max={refundableAmount} step="0.01" value={refundAmount} onChange={event=>setRefundAmount(event.target.value)}/></div>
+                <div className="space-y-2"><Label>Reason *</Label><Textarea value={refundReason} onChange={event=>setRefundReason(event.target.value)} placeholder="Explain why this payment must be refunded" maxLength={1000}/></div>
+                <div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setRefundOpen(false)}>Cancel</Button><Button variant="destructive" disabled={requestRefundMutation.isPending || !refundReason.trim() || Number(refundAmount)<=0 || Number(refundAmount)>refundableAmount} onClick={()=>requestRefundMutation.mutate()}>{requestRefundMutation.isPending?"Submitting...":"Submit refund request"}</Button></div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={requestVoidOpen} onOpenChange={setRequestVoidOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Request order void</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="rounded-xl border bg-muted/40 p-4 text-sm">
+                  <p className="font-medium">Order {order.order_number ?? order.id}</p>
+                  <p className="mt-1 text-muted-foreground">
+                    This request will be sent to F&amp;B Controller, Manager, or General Admin for approval.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="request-void-reason">Reason <span className="text-destructive">*</span></Label>
+                  <Textarea
+                    id="request-void-reason"
+                    value={requestVoidReason}
+                    onChange={(event) => setRequestVoidReason(event.target.value)}
+                    placeholder="Example: Customer changed their mind, incorrect item, duplicate order, or item unavailable"
+                    maxLength={1000}
+                    required
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {["Customer changed their mind", "Incorrect item", "Duplicate order", "Item unavailable"].map((reason) => (
+                      <Button key={reason} type="button" size="sm" variant="outline" onClick={() => setRequestVoidReason(reason)}>
+                        {reason}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setRequestVoidOpen(false)} disabled={requestVoidMutation.isPending}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={!requestVoidReason.trim() || requestVoidMutation.isPending}
+                    onClick={() => {
+                      requestVoidMutation.mutate(
+                        { id: order.id, reason: requestVoidReason.trim() },
+                        {
+                          onSuccess: () => {
+                            toast.success("Void request submitted for approval");
+                            setRequestVoidOpen(false);
+                            setRequestVoidReason("");
+                            query.refetch();
+                          },
+                          onError: (error) => {
+                            toast.error(error instanceof Error ? error.message : "Failed to submit void request");
+                          },
+                        },
+                      );
+                    }}
+                  >
+                    {requestVoidMutation.isPending ? "Submitting..." : "Submit Void Request"}
                   </Button>
                 </div>
               </div>
@@ -2444,7 +2629,23 @@ export function CreditOrdersPage() {
   const query = useCreditOrdersQuery(filters);
   const approve = useApproveCreditOrderMutation();
   const settlement = useSettleCreditOrderMutation(() => setSettle(null));
+  const approveSettlement = useApproveCreditSettlementMutation();
+  const [role, setRole] = useState<"finance" | "manager" | "admin" | "other">("other");
   const rows = query.data?.data ?? [];
+
+  useEffect(() => {
+    try {
+      const storedRoles = JSON.parse(localStorage.getItem("roles") || "[]");
+      const user = JSON.parse(localStorage.getItem("user") || "null");
+      const names = [...storedRoles, user?.role, ...(user?.roles ?? [])]
+        .map((value: any) => String(typeof value === "object" ? value?.name ?? "" : value ?? "").trim().toLowerCase());
+      if (names.includes("general admin")) setRole("admin");
+      else if (names.some((name: string) => ["cafeteria manager", "manager"].includes(name))) setRole("manager");
+      else if (names.some((name: string) => ["finance", "finance manager"].includes(name))) setRole("finance");
+    } catch {
+      setRole("other");
+    }
+  }, []);
 
   function updateFilter(patch: Partial<typeof filters>) {
     setFilters((current) => ({ ...current, ...patch }));
@@ -2456,7 +2657,7 @@ export function CreditOrdersPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Credit Orders</h1>
           <p className="text-muted-foreground">
-            View cashier-created credit orders, filter by credit account, approve, and record settlements.
+            Finance records credit payments. A Manager reviews and approves them before balances are updated.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -2550,6 +2751,7 @@ export function CreditOrdersPage() {
                   const status = String(c.status ?? "").toLowerCase();
                   const canApprove = ["pending", "credit_pending"].includes(status);
                   const canSettle = !["fully_settled", "cancelled", "rejected"].includes(status) && Number(c.remaining_amount ?? 0) > 0;
+                  const pendingSettlements = (c.settlements ?? []).filter((item) => item.status === "pending_approval");
 
                   return (
                     <TableRow key={c.id}>
@@ -2561,12 +2763,12 @@ export function CreditOrdersPage() {
                       <TableCell>{money(c.remaining_amount)}</TableCell>
                       <TableCell>{date(c.created_at)}</TableCell>
                       <TableCell className="text-right">
-                        {canApprove && (
+                        {canApprove && ["manager", "admin"].includes(role) && (
                           <Button size="sm" variant="outline" disabled={approve.isPending} onClick={() => approve.mutate(c.id)}>
                             Approve
                           </Button>
                         )}
-                        {canSettle && (
+                        {canSettle && ["finance", "admin"].includes(role) && (
                           <Button
                             className="ml-2"
                             size="sm"
@@ -2575,9 +2777,20 @@ export function CreditOrdersPage() {
                               setAmount(Number(c.remaining_amount ?? 0));
                             }}
                           >
-                            Settle
+                            Record payment
                           </Button>
                         )}
+                        {["manager", "admin"].includes(role) && pendingSettlements.map((item) => (
+                          <Button
+                            key={item.id}
+                            className="ml-2"
+                            size="sm"
+                            disabled={approveSettlement.isPending}
+                            onClick={() => approveSettlement.mutate({ settlementId: item.id })}
+                          >
+                            Approve {money(item.amount)}
+                          </Button>
+                        ))}
                       </TableCell>
                     </TableRow>
                   );
@@ -2593,7 +2806,7 @@ export function CreditOrdersPage() {
       <Dialog open={!!settle} onOpenChange={(o) => !o && setSettle(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Settle credit order</DialogTitle>
+            <DialogTitle>Record credit payment</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-2">
@@ -2616,7 +2829,7 @@ export function CreditOrdersPage() {
                 })
               }
             >
-              Save settlement
+              Send for Manager approval
             </Button>
           </div>
         </DialogContent>
@@ -2704,10 +2917,22 @@ function useOrderScopeForRole(): Scope {
   const [scope, setScope] = useState<Scope>("admin");
   useEffect(() => {
     try {
-      const roles = JSON.parse(localStorage.getItem("roles") || "[]").map((role: string) => String(role).toLowerCase());
+      const roles = JSON.parse(localStorage.getItem("roles") || "[]").map((role: string | { name?: string }) =>
+        String(typeof role === "object" ? role?.name ?? "" : role).trim().toLowerCase(),
+      );
       const user = JSON.parse(localStorage.getItem("user") || "null");
-      const roleText = [...roles, String(user?.role ?? "")].join(" ");
-      setScope(roleText.includes("waiter") ? "waiter" : roleText.includes("cashier") ? "cashier" : "admin");
+      const normalizedRoles = [...roles, String(user?.role ?? "").trim().toLowerCase()];
+      if (normalizedRoles.some((role) => ["f&b controller", "food controller", "fb-controller"].includes(role))) {
+        setScope("food-controller");
+      } else if (normalizedRoles.some((role) => ["cafeteria manager", "manager"].includes(role))) {
+        setScope("manager");
+      } else if (normalizedRoles.includes("waiter")) {
+        setScope("waiter");
+      } else if (normalizedRoles.includes("cashier")) {
+        setScope("cashier");
+      } else {
+        setScope("admin");
+      }
     } catch {
       setScope("admin");
     }
@@ -2717,7 +2942,12 @@ function useOrderScopeForRole(): Scope {
 
 export function RoleAwareOrdersPage() {
   const scope = useOrderScopeForRole();
-  return <OrdersPage scope={scope} title={scope === "cashier" ? "POS Orders" : scope === "waiter" ? "My Orders" : "Order Management"} createHref={scope === "cashier" ? "/dashboard/order-management/pos/orders/create" : "/dashboard/order-management/orders/create"} />;
+  const title = scope === "cashier"
+    ? "POS Orders"
+    : scope === "waiter"
+      ? "My Orders"
+      : "Order Void Approvals";
+  return <OrdersPage scope={scope} title={title} createHref={scope === "cashier" ? "/dashboard/order-management/pos/orders/create" : "/dashboard/order-management/orders/create"} />;
 }
 
 export function RoleAwareCreateOrderPage() {

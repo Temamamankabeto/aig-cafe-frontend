@@ -3,7 +3,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { orderService } from "@/services/order-management";
 import type { OrderFilters } from "@/types/order-management";
 
-type OrderScope = "waiter" | "cashier" | "public" | "admin";
+type OrderScope = "waiter" | "cashier" | "public" | "admin" | "manager" | "food-controller";
 type TicketKind = "kitchen" | "bar";
 
 const invalidate = (qc: ReturnType<typeof useQueryClient>, key: readonly unknown[]) => {
@@ -75,7 +75,16 @@ export function useServeOrderMutation() {
 
 export function useRequestCancelOrderMutation() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: ({ id, reason }: any) => orderService.requestCancel(id, reason), onSuccess: () => invalidate(qc, queryKeys.orders.root()) });
+  return useMutation({ mutationFn: ({ id, reason }: { id: string | number; reason: string }) => orderService.requestCancel(id, reason), onSuccess: () => invalidate(qc, queryKeys.orders.root()) });
+}
+
+export function useApproveVoidOrderMutation(scope: "admin" | "manager" | "food-controller") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string | number; reason?: string }) =>
+      orderService.approveVoid(id, reason, scope),
+    onSuccess: () => invalidate(qc, queryKeys.orders.root()),
+  });
 }
 
 export function useRecordBillPaymentMutation() {
@@ -128,6 +137,15 @@ export function useSettleCreditOrderMutation(onSuccess?: () => void) {
       invalidate(qc, queryKeys.credit.root());
       onSuccess?.();
     },
+  });
+}
+
+export function useApproveCreditSettlementMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ settlementId, note }: { settlementId: string | number; note?: string }) =>
+      orderService.approveCreditSettlement(settlementId, note),
+    onSuccess: () => invalidate(qc, queryKeys.credit.root()),
   });
 }
 

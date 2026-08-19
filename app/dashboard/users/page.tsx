@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
 import {
@@ -80,6 +81,8 @@ import type {
   UserItem,
   UserStatus,
 } from "@/types/user-management/user.type";
+import { inventoryService } from "@/services/inventory-management/inventory.service";
+import type { Department } from "@/types/inventory-management";
 
 const emptyCreate: CreateUserPayload = {
   name: "",
@@ -87,12 +90,14 @@ const emptyCreate: CreateUserPayload = {
   phone: "",
   password: "",
   role: "",
+  department_id: "",
 };
 const emptyEdit: UpdateUserPayload = {
   name: "",
   email: "",
   phone: "",
   role: "",
+  department_id: "",
 };
 
 function roleOf(user: UserItem) {
@@ -142,6 +147,11 @@ export default function UsersPage() {
   );
   const usersQuery = useUsersQuery(params);
   const roles = useUserRolesLiteQuery().data ?? [];
+  const departmentsQuery = useQuery({
+    queryKey: ["admin", "departments", "active", "user-assignment"],
+    queryFn: () => inventoryService.departments({ is_active: true, per_page: 200 }, "admin"),
+  });
+  const departments = departmentsQuery.data?.data ?? [];
   const createUser = useCreateUserMutation();
   const updateUser = useUpdateUserMutation();
   const toggleUser = useToggleUserMutation();
@@ -161,6 +171,7 @@ export default function UsersPage() {
       email: user.email ?? "",
       phone: user.phone ?? "",
       role: role === "—" ? "" : role,
+      department_id: user.department_id ? String(user.department_id) : "",
     });
     setEditOpen(true);
   }
@@ -182,19 +193,6 @@ if (!parsed.success) {
   );
   return;
 }
-
-const data: CreateUserPayload = parsed.data;
-
-createUser.mutate(data, {
-  onSuccess: () => {
-    setCreateOpen(false);
-    setCreateForm(emptyCreate);
-    toast.success("User created successfully.");
-  },
-  onError: (error) => {
-    toast.error(mutationErrorMessage(error, "Failed to create user."));
-  },
-});
 
     createUser.mutate(parsed.data, {
       onSuccess: () => {
@@ -340,6 +338,7 @@ createUser.mutate(data, {
                     <TableHead>Email</TableHead>
                     <TableHead>Phone</TableHead>
                     <TableHead>Role</TableHead>
+                    <TableHead>Department</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -348,7 +347,7 @@ createUser.mutate(data, {
                   {rows.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={6}
+                        colSpan={7}
                         className="py-8 text-center text-muted-foreground"
                       >
                         No users found
@@ -363,6 +362,7 @@ createUser.mutate(data, {
                         <TableCell>{user.email}</TableCell>
                         <TableCell>{user.phone ?? "—"}</TableCell>
                         <TableCell>{roleOf(user)}</TableCell>
+                        <TableCell>{user.department?.name ?? "—"}</TableCell>
                         <TableCell>
                           <Badge
                             variant={
@@ -479,6 +479,7 @@ createUser.mutate(data, {
            <UserFields
   form={createForm}
   roles={roles.map((r) => r.name)}
+  departments={departments}
   includePassword
   onChange={(value) => setCreateForm(value as CreateUserPayload)}
 />
@@ -503,6 +504,7 @@ createUser.mutate(data, {
             <UserFields
   form={editForm}
   roles={roles.map((r) => r.name)}
+  departments={departments}
   onChange={(value) => setEditForm(value as UpdateUserPayload)}
 />
             <Button className="w-full" disabled={busy}>
@@ -574,11 +576,13 @@ createUser.mutate(data, {
 function UserFields<T extends CreateUserPayload | UpdateUserPayload>({
   form,
   roles,
+  departments,
   onChange,
   includePassword = false,
 }: {
   form: T;
   roles: string[];
+  departments: Department[];
   includePassword?: boolean;
   onChange: (value: T) => void;
 }) {
@@ -626,6 +630,27 @@ function UserFields<T extends CreateUserPayload | UpdateUserPayload>({
             ))}
           </SelectContent>
         </Select>
+      </div>
+      <div className="grid gap-2">
+        <Label>Department</Label>
+        <Select
+          value={String(form.department_id ?? "")}
+          onValueChange={(department_id) => onChange({ ...form, department_id })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={departments.length ? "Select department" : "No active departments"} />
+          </SelectTrigger>
+          <SelectContent>
+            {departments.map((department) => (
+              <SelectItem key={department.id} value={String(department.id)}>
+                {department.name}{department.code ? ` (${department.code})` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!departments.length && (
+          <p className="text-xs text-destructive">Create or activate a department before assigning a user.</p>
+        )}
       </div>
       {includePassword && "password" in form && (
         <div className="grid gap-2">

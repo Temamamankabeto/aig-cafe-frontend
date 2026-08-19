@@ -79,6 +79,7 @@ import {
 } from "@/lib/inventory-management";
 import { RecipesTabPage } from "@/components/inventory-management/recipes-tab-page";
 import { can, getStoredRoles, inventoryPermissions } from "@/lib/auth/permissions";
+import { normalizeRole } from "@/config/dashboard.config";
 import {
   useAdjustStockMutation,
   useCreateInventoryItemMutation,
@@ -104,6 +105,11 @@ import type {
 import { printBusinessDocument } from "@/lib/print-documents";
 
 type Scope = "admin" | "food-controller" | "stock-keeper";
+
+function resolveInventoryActionScope(scope: Scope): Scope {
+  const activeRole = normalizeRole(getStoredRoles()[0]);
+  return activeRole === "stock-keeper" ? "stock-keeper" : scope;
+}
 const unitOptions: Array<{ value: BaseUnit; label: string; help: string }> = [
   {
     value: "kg",
@@ -147,7 +153,11 @@ function canDeleteInventoryItem() {
 }
 
 function canViewLowStock() {
-  return can(inventoryPermissions.lowStock) || can("inventory.alerts.read");
+  return (
+    normalizeRole(getStoredRoles()[0]) === "stock-keeper" ||
+    can(inventoryPermissions.lowStock) ||
+    can("inventory.alerts.read")
+  );
 }
 
 function canViewValuation() {
@@ -580,7 +590,8 @@ function AdjustInventoryDialogContent({
   scope: Scope;
   onClose: () => void;
 }) {
-  const adjust = useAdjustStockMutation();
+  const actionScope = resolveInventoryActionScope(scope);
+  const adjust = useAdjustStockMutation(undefined, actionScope);
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
 
@@ -818,9 +829,12 @@ export function StockActionPage({
   mode: "adjust" | "waste" | "receiving";
   scope?: Scope;
 }) {
-  const items = useInventoryItemsQuery({ per_page: 100 }, scope);
-  const adjust = useAdjustStockMutation();
-  const waste = useRecordWasteMutation();
+  const actionScope = resolveInventoryActionScope(scope);
+  const items = useInventoryItemsQuery({ per_page: 100 }, actionScope);
+  // Keep mutations on the same role-scoped API used to load the workspace.
+  // Store Keepers must call /stock-keeper/*, never the /admin/* endpoints.
+  const adjust = useAdjustStockMutation(undefined, actionScope);
+  const waste = useRecordWasteMutation(undefined, actionScope);
   const [itemId, setItemId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
@@ -949,7 +963,7 @@ export function StockActionPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <TransactionsPreview scope={scope} />
+            <TransactionsPreview scope={actionScope} />
           </CardContent>
         </Card>
       </div>
@@ -1243,6 +1257,8 @@ export function InventoryReportPage({
   const roleNames = getStoredRoles().map((role) => role.toLowerCase());
   const reportScope = roleNames.includes("general admin")
     ? "admin"
+    : roleNames.some((role) => role.includes("store keeper") || role.includes("stock keeper"))
+      ? "stock-keeper"
     : roleNames.includes("manager")
       ? "manager"
       : roleNames.includes("finance")

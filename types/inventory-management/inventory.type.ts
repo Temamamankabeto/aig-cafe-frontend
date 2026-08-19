@@ -179,6 +179,58 @@ export interface InventoryTransaction {
     id: number;
     name: string;
   } | null;
+
+  creator?: { id: number; name: string } | null;
+  department?: Department | null;
+  responsible_user_id?: number | string | null;
+  responsible_user?: DepartmentUser | null;
+  custody_status?: "issued" | "received" | "partially_used" | "return_requested" | "closed" | null;
+  received_at?: string | null;
+  used_quantity?: number;
+  return_requested_quantity?: number;
+  available_quantity?: number;
+  return_request_reason?: string | null;
+  return_requested_at?: string | null;
+  returned_quantity?: number;
+  returnable_quantity?: number;
+  before_quantity?: number;
+  after_quantity?: number;
+}
+
+export interface StockBalanceRow {
+  inventory_item_id: number;
+  item: string;
+  sku?: string | null;
+  store: string;
+  unit: BaseUnit;
+  available_quantity: number;
+  reserved_quantity: number;
+  minimum_quantity: number;
+  stock_status: string;
+}
+
+export interface StockCardLine {
+  id: number;
+  date: string;
+  reference: string;
+  type: string;
+  note?: string | null;
+  received: number;
+  issued: number;
+  returned: number;
+  transferred: number;
+  adjustment: number;
+  waste: number;
+  balance: number;
+  recorded_by?: string | null;
+}
+
+export interface StockCard {
+  item: { id: number; name: string; sku?: string | null; unit: BaseUnit };
+  store: string;
+  opening_balance: number;
+  closing_balance: number;
+  lines: StockCardLine[];
 }
 
 // ================================
@@ -200,7 +252,39 @@ export interface WastePayload {
 
 export interface DepartmentStockoutPayload {
   quantity: number;
-  department: string;
+  department_id: number | string;
+  responsible_user_id: number | string;
+  reason: string;
+}
+
+export interface DepartmentUser {
+  id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  department_id: number;
+}
+
+export interface Department {
+  id: number;
+  name: string;
+  code?: string | null;
+  description?: string | null;
+  is_active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+  deleted_at?: string | null;
+}
+
+export interface DepartmentPayload {
+  name: string;
+  code?: string | null;
+  description?: string | null;
+  is_active?: boolean;
+}
+
+export interface ReturnToStorePayload {
+  quantity: number;
   reason: string;
 }
 

@@ -72,8 +72,8 @@ export const dashboardConfig: Record<AppRoleKey, DashboardDefinition> = {
   },
   "stock-keeper": {
     key: "stock-keeper",
-    roleName: "Stock Keeper",
-    title: "Stock Keeper Dashboard",
+    roleName: "Store Keeper",
+    title: "Store Keeper Dashboard",
     subtitle: "Receiving, stock balances, movements, adjustments, and low-stock alerts.",
     route: roleHome["stock-keeper"],
     icon: Warehouse,

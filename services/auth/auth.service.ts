@@ -10,6 +10,7 @@ export type AuthUser = {
   role?: string;
   roles?: string[];
   permissions?: string[];
+  department_id?: number | string | null;
 };
 
 type LoginResponse = {

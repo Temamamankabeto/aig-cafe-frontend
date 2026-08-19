@@ -1,12 +1,16 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RefreshCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBaseQuantity, formatMoney } from "@/lib/inventory-management";
 import { useLowStockQuery } from "@/hooks/inventory-management";
 import type { BaseUnit, LowStockRow } from "@/types/inventory-management";
+import type { InventoryRoleScope } from "@/services/inventory-management/inventory.service";
+import { getStoredRoles } from "@/lib/auth/permissions";
+import { normalizeRole } from "@/config/dashboard.config";
+import { Button } from "@/components/ui/button";
 
 type LowStockAlertRow = LowStockRow & {
   low_stock_level?: "critical" | "warning" | string | null;
@@ -54,8 +58,18 @@ function EmptyState() {
   );
 }
 
-export function LowStockTabPage() {
-  const query = useLowStockQuery();
+function activeInventoryScope(fallback: InventoryRoleScope): InventoryRoleScope {
+  const role = normalizeRole(getStoredRoles()[0]);
+  if (role === "stock-keeper") return "stock-keeper";
+  if (role === "general-admin") return "admin";
+  if (role === "cafeteria-manager") return "manager";
+  if (role === "finance-manager") return "finance";
+  return fallback;
+}
+
+export function LowStockTabPage({ scope = "food-controller" }: { scope?: InventoryRoleScope }) {
+  const resolvedScope = activeInventoryScope(scope);
+  const query = useLowStockQuery(resolvedScope);
   const rows = (query.data ?? [])
     .filter((row) => Number(row.current_stock ?? 0) <= Number(row.minimum_quantity ?? 0)) as LowStockAlertRow[];
 
@@ -64,6 +78,29 @@ export function LowStockTabPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-6 w-6 text-destructive" />
+            <h1 className="text-2xl font-bold tracking-tight">Low Stock</h1>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Items whose current stock is less than or equal to their minimum quantity.
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>
+          <RefreshCcw className={`mr-2 h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {query.isError && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-5 text-sm text-destructive">
+          <p className="font-semibold">Unable to load low-stock items</p>
+          <p className="mt-1">{query.error instanceof Error ? query.error.message : "The low-stock request failed."}</p>
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="p-5">
@@ -100,6 +137,8 @@ export function LowStockTabPage() {
         <CardContent>
           {query.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading low stock alerts...</p>
+          ) : query.isError ? (
+            <p className="text-sm text-muted-foreground">Correct the API error above, then select Refresh.</p>
           ) : rows.length ? (
             <div className="overflow-x-auto">
               <Table>

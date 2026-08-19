@@ -27,6 +27,13 @@ export type UserItem = {
   phone?: string | null;
   status?: UserStatus;
   role?: string | null;
+  department_id?: number | string | null;
+  department?: {
+    id: number | string;
+    name: string;
+    code?: string | null;
+    is_active?: boolean;
+  } | null;
   roles?: Array<string | { id?: number | string; name: string }>;
   profile_image_url?: string | null;
   created_at?: string;
@@ -46,6 +53,7 @@ export type CreateUserPayload = {
   phone: string;
   password: string;
   role: string;
+  department_id: number | string;
 };
 
 export type UpdateUserPayload = {
@@ -53,6 +61,7 @@ export type UpdateUserPayload = {
   email: string;
   phone: string;
   role: string;
+  department_id: number | string;
 };
 
 export type ResetUserPasswordPayload = {

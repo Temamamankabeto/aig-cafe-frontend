@@ -5,14 +5,18 @@ function clean(params: Record<string, unknown> = {}) { const out: Record<string,
 function rows<T>(body: any): T[] { const d = body?.data; if (Array.isArray(body)) return body; if (Array.isArray(d)) return d; if (Array.isArray(d?.data)) return d.data; return []; }
 function meta(body: any, len: number) { const src = body?.data && !Array.isArray(body.data) ? body.data : body; const m = body?.meta ?? src ?? {}; return { current_page: Number(m.current_page ?? 1), per_page: Number(m.per_page ?? len ?? 10), total: Number(m.total ?? len ?? 0), last_page: Number(m.last_page ?? 1) }; }
 function page<T>(body: any): PaginatedResponse<T> { const data = rows<T>(body); return { success: body?.success, message: body?.message, data, meta: meta(body, data.length) }; }
-function baseEndpoint(scope: 'waiter'|'cashier'|'public'|'admin' = 'admin') {
+type OrderApiScope = 'waiter'|'cashier'|'public'|'admin'|'manager'|'food-controller';
+
+function baseEndpoint(scope: OrderApiScope = 'admin') {
   if (scope === 'waiter') return '/waiter/orders';
   if (scope === 'cashier') return '/cashier/orders';
   if (scope === 'public') return '/public/orders';
-  return '/orders';
+  if (scope === 'manager') return '/manager/orders';
+  if (scope === 'food-controller') return '/food-controller/orders';
+  return '/admin/orders';
 }
 
-function listEndpoint(scope: 'waiter'|'cashier'|'public'|'admin' = 'admin') {
+function listEndpoint(scope: OrderApiScope = 'admin') {
   // Backend waiter routes keep list under /waiter/orders/my, while create/actions stay under /waiter/orders.
   // This makes newly created waiter orders appear immediately without changing other scopes.
   if (scope === 'waiter') return '/waiter/orders/my';
@@ -21,8 +25,8 @@ function listEndpoint(scope: 'waiter'|'cashier'|'public'|'admin' = 'admin') {
 
 export const orderService = {
   async waiters(search = '') { const res = await api.get('/cashier/waiters-lite', { params: clean({ search }) }); return rows<LiteUser>(res.data); },
-  async orders(params: OrderFilters = {}, scope: 'waiter'|'cashier'|'public'|'admin' = 'admin') { const res = await api.get(listEndpoint(scope), { params: clean(params) }); return page<Order>(res.data); },
-  async order(id: string|number, scope: 'waiter'|'cashier'|'public'|'admin' = 'admin') {
+  async orders(params: OrderFilters = {}, scope: OrderApiScope = 'admin') { const res = await api.get(listEndpoint(scope), { params: clean(params) }); return page<Order>(res.data); },
+  async order(id: string|number, scope: OrderApiScope = 'admin') {
     const endpoints = scope === 'waiter'
       ? [`/waiter/orders/${id}`, `/admin/orders/${id}`, `/orders/${id}`]
       : scope === 'cashier'
@@ -58,7 +62,7 @@ export const orderService = {
 
   return res.data;
 },
-  async createOrder(payload: OrderPayload, scope: 'waiter'|'cashier'|'public'|'admin' = 'waiter') { const res = await api.post(baseEndpoint(scope), payload); return unwrap<ApiEnvelope<Order>>(res); },
+  async createOrder(payload: OrderPayload, scope: OrderApiScope = 'waiter') { const res = await api.post(baseEndpoint(scope), payload); return unwrap<ApiEnvelope<Order>>(res); },
   async confirmOrder(id: string|number) {
     try {
       const res = await api.post(`/cashier/orders/${id}/confirm`);
@@ -69,7 +73,11 @@ export const orderService = {
     }
   },
   async serveOrder(id: string|number) { const res = await api.post(`/waiter/orders/${id}/serve`); return unwrap<ApiEnvelope<Order>>(res); },
-  async requestCancel(id: string|number, reason?: string) { const res = await api.post(`/waiter/orders/${id}/request-cancel`, { reason }); return unwrap<ApiEnvelope<Order>>(res); },
+  async requestCancel(id: string|number, reason: string) { const res = await api.post(`/waiter/orders/${id}/request-cancel`, { reason }); return unwrap<ApiEnvelope<Order>>(res); },
+  async approveVoid(id: string|number, reason: string|undefined, scope: 'admin'|'manager'|'food-controller') {
+    const res = await api.post(`${baseEndpoint(scope)}/${id}/approve-cancel`, { reason });
+    return unwrap<ApiEnvelope<Order>>(res);
+  },
   async recordBillPayment(billId: string|number, payload: PaymentPayload) { const res = await api.post(`/cashier/bills/${billId}/payments`, payload); return unwrap<ApiEnvelope<any>>(res); },
   async convertBillToCredit(billId: string|number, payload: ConvertCreditPayload) { const res = await api.post(`/credit/bills/${billId}/convert`, payload); return unwrap<ApiEnvelope<CreditOrder>>(res); },
 
@@ -96,6 +104,7 @@ export const orderService = {
   async approveCreditOrder(id: string|number) { const res = await api.post(`/credit/orders/${id}/approve`); return unwrap<ApiEnvelope<CreditOrder>>(res); },
   async rejectCreditOrder(id: string|number, note?: string) { const res = await api.post(`/credit/orders/${id}/reject`, { note }); return unwrap<ApiEnvelope<CreditOrder>>(res); },
   async settleCreditOrder(id: string|number, payload: CreditSettlementPayload) { const res = await api.post(`/credit/orders/${id}/settlements`, payload); return unwrap<ApiEnvelope<CreditOrder>>(res); },
+  async approveCreditSettlement(settlementId: string|number, note?: string) { const res = await api.post(`/credit/settlements/${settlementId}/approve`, { note }); return unwrap<ApiEnvelope<CreditOrder>>(res); },
 
   async packages(params: OrderFilters = {}) { const res = await api.get('/packages', { params: clean(params) }); return page<PackageTemplate>(res.data); },
   async package(id: string|number) { const res = await api.get(`/packages/${id}`); return unwrap<ApiEnvelope<PackageTemplate>>(res); },

@@ -22,8 +22,14 @@ const ROUTE_ROLE_RULES: AccessRule[] = [
   { prefixes: ["/dashboard/waiter", "/dashboard/modules/waiter"], roles: ["Waiter", ADMIN], anyPermissions: ["orders.read", "menu.read"] },
   { prefixes: ["/dashboard/customer", "/dashboard/modules/customer"], roles: ["Customer", ADMIN], anyPermissions: ["orders.read"] },
   { prefixes: ["/dashboard/modules/public/menu"], roles: ["Customer", "Waiter", ADMIN], anyPermissions: ["menu.read"] },
+  { prefixes: ["/dashboard/purchases/validation"], roles: ["F&B Controller", ADMIN], anyPermissions: ["food-controller.dashboard"] },
   { prefixes: ["/dashboard/purchases"], roles: ["Manager", "F&B Controller", "Purchaser", "Store Keeper", ADMIN], anyPermissions: ["purchase_orders.read", "purchases.read"] },
   { prefixes: ["/dashboard/inventory"], roles: ["Manager", "F&B Controller", "Purchaser", "Store Keeper", "Finance", ADMIN], anyPermissions: ["inventory.read", "inventory.items.read"] },
+  {
+    prefixes: ["/dashboard/order-management/orders"],
+    roles: ["Manager", "F&B Controller", "Waiter", ADMIN],
+    anyPermissions: ["orders.read", "food-controller.dashboard"],
+  },
   { prefixes: ["/dashboard/order-management"], roles: ["Manager", "Cashier", "Waiter", "Finance", ADMIN], anyPermissions: ["orders.read", "credit.accounts.read", "package.orders.read"] },
   { prefixes: ["/dashboard/modules/cashier"], roles: ["Cashier", ADMIN], anyPermissions: ["payments.read", "cash_shift.read"] },
   { prefixes: ["/dashboard/modules/finance", "/dashboard/modules/bills", "/dashboard/modules/cash-shifts"], roles: ["Finance", "Cashier", ADMIN], anyPermissions: ["payments.read", "bills.read", "cash_shift.read"] },
@@ -81,6 +87,14 @@ function hasAllowedRole(userRoles: string[], allowedRoles: string[]) {
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+
+  if (process.env.NODE_ENV === "production" && forwardedProto === "http") {
+    const secureUrl = request.nextUrl.clone();
+    secureUrl.protocol = "https:";
+    return NextResponse.redirect(secureUrl, 308);
+  }
+
   const token = request.cookies.get("token")?.value;
 
   if (!token) {

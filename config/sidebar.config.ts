@@ -41,19 +41,12 @@ export type RoleSidebar = {
   sections: SidebarSection[];
 };
 
-const s = (title: string, items: SidebarItem[]): SidebarSection => ({ title, items });
+const section = (title: string, items: SidebarItem[]): SidebarSection => ({ title, items });
 
 const dashboardItem = (role: AppRoleKey): SidebarItem => ({
   label: "Dashboard",
   href: dashboardConfig[role].route,
   icon: LayoutDashboard,
-});
-
-const item = (label: string, href: string, icon: LucideIcon, permission?: string): SidebarItem => ({
-  label,
-  href,
-  icon,
-  permission,
 });
 
 const group = (label: string, icon: LucideIcon, children: SidebarChildItem[]): SidebarItem => ({
@@ -62,98 +55,160 @@ const group = (label: string, icon: LucideIcon, children: SidebarChildItem[]): S
   children,
 });
 
-const roleSidebar = (
-  role: AppRoleKey,
-  icon: LucideIcon,
-  menuItems: SidebarItem[],
-  includeDashboard = true,
-): RoleSidebar => ({
+/**
+ * Every role receives one Dashboard link and at most two grouped menus.
+ * This keeps the sidebar at three top-level entries or fewer while allowing
+ * each role's complete workflow to remain available as submenu links.
+ */
+const roleSidebar = (role: AppRoleKey, icon: LucideIcon, menuItems: SidebarItem[]): RoleSidebar => ({
   title: dashboardConfig[role].roleName,
   icon,
-  sections: [
-    ...(includeDashboard ? [s("Main", [dashboardItem(role)])] : []),
-    s("Menu", menuItems),
-  ],
+  sections: [section("Main", [dashboardItem(role), ...menuItems])],
 });
 
 const orderBase = "/dashboard/order-management";
 
-const cashCreditReportChildren: SidebarChildItem[] = [
-  { label: "Cash Sales", href: "/dashboard/modules/reports/cash-sales", permission: "reports.sales.read" },
-  { label: "Credit Sales", href: "/dashboard/modules/reports/credit-sales", permission: "credit.reports.read" },
+const salesReportChildren: SidebarChildItem[] = [
+  {
+    label: "Sales Report",
+    href: "/dashboard/modules/reports/sold-items",
+    permission: "reports.sales.read",
+  },
 ];
 
 export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   "general-admin": roleSidebar("general-admin", ShieldCheck, [
-    item("Users", "/dashboard/users", Users, "users.read"),
-    item("Roles", "/dashboard/users/roles", ShieldCheck, "roles.read"),
-    item("Permissions", "/dashboard/users/permissions", Settings, "permissions.read"),
-    item("Table Management", "/dashboard/modules/tables", Store, "tables.read"),
-    item("Menu Management", "/dashboard/modules/menu", ClipboardList, "menu.read"),
-    item("Inventory", "/dashboard/inventory/items", Warehouse, "inventory.read"),
-    item("Purchase Requests", "/dashboard/purchases/requests", Truck, "purchase_orders.read"),
-    item("Orders", `${orderBase}/orders`, ShoppingCart, "orders.read"),
-    group("Report", BarChart3, cashCreditReportChildren),
-    group("Setting", Settings, [{ label: "Audit Log", href: "/dashboard/audit-logs", permission: "audit.read" }]),
+    group("Administration", Settings, [
+      { label: "Users", href: "/dashboard/users", permission: "users.read" },
+      { label: "Roles", href: "/dashboard/users/roles", permission: "roles.read" },
+      { label: "Departments", href: "/dashboard/general-admin/departments", permission: "inventory.read" },
+      { label: "Tables & Waiters", href: "/dashboard/modules/tables", permission: "tables.read" },
+    ]),
+    group("Operations & Reports", BarChart3, [
+      { label: "Orders", href: `${orderBase}/orders`, permission: "orders.read" },
+      { label: "Inventory", href: "/dashboard/inventory/overview", permission: "inventory.read" },
+      { label: "Purchase Approval", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
+      { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
+      { label: "Catering Packages", href: `${orderBase}/packages` },
+      ...salesReportChildren,
+    ]),
   ]),
+
   "cafeteria-manager": roleSidebar("cafeteria-manager", Store, [
-    item("Users", "/dashboard/users", Users, "users.read"),
-    item("Table Management", "/dashboard/modules/tables", Store, "tables.read"),
-    item("Credit Account", `${orderBase}/credit-accounts`, CreditCard, "credit.accounts.read"),
-    item("Purchase Request", "/dashboard/purchases/requests", Truck, "purchase_orders.read"),
-    item("Order List", `${orderBase}/orders`, ShoppingCart, "orders.read"),
-    group("Report", BarChart3, cashCreditReportChildren),
-    group("Setting", Settings, [{ label: "Audit Log", href: "/dashboard/audit-logs", permission: "audit.read" }]),
+    group("Operations & Approvals", ClipboardList, [
+      { label: "Tables & Waiters", href: "/dashboard/modules/tables", permission: "tables.read" },
+      { label: "Orders", href: `${orderBase}/orders`, permission: "orders.read" },
+      { label: "Kitchen Queue", href: "/dashboard/modules/kitchen/tickets" },
+      { label: "Bar Queue", href: "/dashboard/modules/bar/tickets" },
+      { label: "Purchase Approvals", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
+      { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
+      { label: "Credit Orders", href: `${orderBase}/credit-orders` },
+      { label: "Catering Packages", href: `${orderBase}/packages` },
+      { label: "Package Orders", href: `${orderBase}/package-orders` },
+    ]),
+    group("Inventory & Reports", BarChart3, [
+      { label: "Inventory Overview", href: "/dashboard/cafeteria-manager/inventory", permission: "inventory.read" },
+      { label: "Low-stock Items", href: "/dashboard/inventory/low-stock", permission: "inventory.read" },
+      { label: "Stock Valuation", href: "/dashboard/inventory/valuation", permission: "inventory.read" },
+      ...salesReportChildren,
+    ]),
   ]),
 
   "fb-controller": roleSidebar("fb-controller", ClipboardList, [
-    item("Menu Management", "/dashboard/modules/menu", ClipboardList, "menu.read"),
-    item("Inventory Items", "/dashboard/inventory/items", Warehouse, "inventory.read"),
-    group("Report", BarChart3, cashCreditReportChildren),
+    group("Operations & Approval", ClipboardList, [
+      { label: "Menu Management", href: "/dashboard/modules/menu", permission: "menu.read" },
+      { label: "Orders", href: `${orderBase}/orders` },
+      { label: "Purchase Validation", href: "/dashboard/purchases/validation" },
+      { label: "Stock-out Validation", href: "/dashboard/fb-controller/stockout-validation" },
+    ]),
+    group("Inventory & Reports", BarChart3, [
+      { label: "Inventory Items", href: "/dashboard/inventory/items", permission: "inventory.read" },
+      { label: "Kitchen & Bar Consumption", href: "/dashboard/fb-controller/stockout-report", permission: "inventory.read" },
+      { label: "Consumption Report", href: "/dashboard/fb-controller/consumption-report", permission: "inventory.read" },
+      { label: "Sales Report", href: "/dashboard/modules/reports/sold-items", permission: "reports.sales.read" },
+    ]),
   ]),
 
   "finance-manager": roleSidebar("finance-manager", BarChart3, [
-    group("Report", BarChart3, cashCreditReportChildren),
-  ]),
-
-  "stock-keeper": roleSidebar("stock-keeper", Warehouse, [
-    item("Request Purchase", "/dashboard/purchases/requests", Truck, "purchase_requests.create"),
-    item("Inventory Items", "/dashboard/inventory/items", Warehouse, "inventory.read"),
-    item("Record Stockout", "/dashboard/inventory/stockout", ClipboardList, "inventory.waste.create"),
+    group("Finance Operations", CreditCard, [
+      { label: "Finance Overview", href: "/dashboard/modules/finance" },
+      { label: "Bills & Refunds", href: "/dashboard/modules/bills" },
+      { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
+      { label: "Credit Orders", href: `${orderBase}/credit-orders` },
+      { label: "Package Orders", href: `${orderBase}/package-orders` },
+    ]),
+    group("Reports", BarChart3, [
+      { label: "Profit & Expenses", href: "/dashboard/modules/finance/profit" },
+      ...salesReportChildren,
+    ]),
   ]),
 
   purchaser: roleSidebar("purchaser", Truck, [
-    item("Purchase Request", "/dashboard/purchases/requests", Truck, "purchase_orders.read"),
+    group("Procurement", Truck, [
+      { label: "Procurement Workspace", href: "/dashboard/purchaser/procurement-workspace" },
+      { label: "Suppliers", href: "/dashboard/purchases/suppliers" },
+      { label: "Purchase Requests", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
+      { label: "Receiving Records", href: "/dashboard/purchaser/receiving" },
+    ]),
   ]),
 
-  cashier: roleSidebar(
-    "cashier",
-    CreditCard,
-    [
-      item("Orders", `${orderBase}/pos/orders`, ShoppingCart, "orders.read"),
-      item("Sales", "/dashboard/order-management/orders/sold-items", BarChart3, "reports.sales.read"),
-    ],
-    true,
-  ),
+  "stock-keeper": roleSidebar("stock-keeper", Warehouse, [
+    group("Stock Operations", Warehouse, [
+      { label: "Stock Workspace", href: "/dashboard/stock-keeper/stock-workspace" },
+      { label: "Receive Stock / Stock In", href: "/dashboard/purchases/receiving", permission: "inventory.read" },
+      { label: "Inventory Items", href: "/dashboard/inventory/items", permission: "inventory.read" },
+      { label: "Stock-out", href: "/dashboard/inventory/stockout", permission: "inventory.adjustments.create" },
+      { label: "Return to Store", href: "/dashboard/inventory/returns", permission: "inventory.read" },
+    ]),
+    group("Stock Control", BarChart3, [
+      { label: "Stock Balance", href: "/dashboard/inventory/stock-balance", permission: "inventory.read" },
+      { label: "Stock Card", href: "/dashboard/inventory/stock-card", permission: "inventory.read" },
+      { label: "Low Stock Items", href: "/dashboard/inventory/low-stock", permission: "inventory.read" },
+      { label: "Purchase Requests", href: "/dashboard/purchases/requests", permission: "purchase_requests.create" },
+    ]),
+  ]),
 
-  waiter: roleSidebar(
-    "waiter",
-    Users,
-    [item("My Orders", `${orderBase}/orders`, ShoppingCart, "orders.read")],
-    true,
-  ),
+  cashier: roleSidebar("cashier", CreditCard, [
+    group("POS & Payments", ShoppingCart, [
+      { label: "POS Orders", href: `${orderBase}/pos/orders`, permission: "orders.read" },
+    ]),
+    group("Reports", BarChart3, [
+      { label: "Sales Report", href: "/dashboard/modules/reports/sold-items", permission: "reports.sales.read" },
+    ]),
+  ]),
 
   "kitchen-staff": roleSidebar("kitchen-staff", ChefHat, [
-    item("Kitchen Order", "/dashboard/modules/kitchen/tickets", ChefHat, "kitchen.queue.read"),
+    group("Kitchen Operations", ChefHat, [
+      { label: "Kitchen Orders", href: "/dashboard/modules/kitchen/tickets", permission: "kitchen.queue.read" },
+      { label: "Order Report", href: "/dashboard/modules/kitchen/order-report", permission: "kitchen.queue.read" },
+      { label: "Stock & Consumption", href: "/dashboard/my-department-stock" },
+      { label: "Consumption Report", href: "/dashboard/my-department-stock/consumption-report" },
+    ]),
   ]),
 
   barman: roleSidebar("barman", Wine, [
-    item("Bar Order", "/dashboard/modules/bar/tickets", Wine, "bar.queue.read"),
+    group("Bar Operations", Wine, [
+      { label: "Bar Orders", href: "/dashboard/modules/bar/tickets", permission: "bar.queue.read" },
+      { label: "Order Report", href: "/dashboard/modules/bar/order-report", permission: "bar.queue.read" },
+      { label: "Stock & Consumption", href: "/dashboard/my-department-stock" },
+      { label: "Consumption Report", href: "/dashboard/my-department-stock/consumption-report" },
+    ]),
+  ]),
+
+  waiter: roleSidebar("waiter", Users, [
+    {
+      label: "My Orders",
+      href: `${orderBase}/orders`,
+      icon: ShoppingCart,
+      permission: "orders.read",
+    },
   ]),
 
   customer: roleSidebar("customer", Users, [
-    item("Public Menu", "/dashboard/modules/public/menu", ShoppingCart, "menu.read"),
-    item("My Orders", "/dashboard/modules/customer/orders", ShoppingCart, "orders.read"),
+    group("My Ordering", ShoppingCart, [
+      { label: "Browse Menu", href: "/dashboard/modules/public/menu", permission: "menu.read" },
+      { label: "My Orders", href: "/dashboard/modules/customer/orders", permission: "orders.read" },
+    ]),
   ]),
 };
 
@@ -164,11 +219,13 @@ export function getSidebarForRole(role?: string | null): RoleSidebar {
 
 export function filterSidebarByPermissions(roleSidebar: RoleSidebar, permissions: string[] = []) {
   return roleSidebar.sections
-    .map((section) => ({
-      ...section,
-      items: section.items
+    .map((sidebarSection) => ({
+      ...sidebarSection,
+      items: sidebarSection.items
         .map((sidebarItem) => {
-          const children = sidebarItem.children?.filter((child) => !child.permission || permissions.includes(child.permission));
+          const children = sidebarItem.children?.filter(
+            (child) => !child.permission || permissions.includes(child.permission),
+          );
 
           if (sidebarItem.children) {
             return children?.length ? { ...sidebarItem, children } : null;
@@ -178,5 +235,5 @@ export function filterSidebarByPermissions(roleSidebar: RoleSidebar, permissions
         })
         .filter(Boolean) as SidebarItem[],
     }))
-    .filter((section) => section.items.length > 0);
+    .filter((sidebarSection) => sidebarSection.items.length > 0);
 }

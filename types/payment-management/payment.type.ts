@@ -24,6 +24,17 @@ export type Payment = {
   status: PaymentStatus;
   paid_at?: string | null;
   created_at?: string;
+  order_id?: number | string | null;
+  order?: {
+    id: number | string;
+    order_number?: string | null;
+    customer_name?: string | null;
+  } | null;
+  finance_status?: "pending" | "approved" | "received";
+  finance_receipt_url?: string | null;
+  finance_received_at?: string | null;
+  finance_note?: string | null;
+  finance_receiver?: { id: number | string; name?: string | null } | null;
   bill?: {
     id: number | string;
     bill_number?: string | null;
@@ -50,6 +61,9 @@ export type PaymentFilters = {
   bill_id?: number | string;
   page?: number;
   per_page?: number;
+  date_from?: string;
+  date_to?: string;
+  finance_status?: "pending" | "approved" | "received" | "all";
 };
 
 export type CreatePaymentPayload = {
@@ -61,5 +75,7 @@ export type CreatePaymentPayload = {
 
 export type PaymentListResponse = {
   data: Payment[];
-  meta?: PaginationMeta;
+  meta?: PaginationMeta & {
+    summary?: { total_amount?: number; pending_count?: number; pending_amount?: number; approved_amount?: number };
+  };
 };

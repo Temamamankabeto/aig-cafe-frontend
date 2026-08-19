@@ -17,6 +17,7 @@ export const createUserSchema = z.object({
   phone: z.string().min(3, "Phone is required").max(20),
   password: z.string().min(6, "Password must be at least 6 characters").max(255),
   role: z.string().min(1, "Role is required"),
+  department_id: z.union([z.number().int().positive(), z.string().min(1, "Department is required")]),
 }).strict() as z.ZodType<CreateUserPayload, z.ZodTypeDef, CreateUserPayload>;
 
 /**
@@ -27,6 +28,7 @@ export const updateUserSchema = z.object({
   email: z.string().email("Valid email is required").max(100),
   phone: z.string().min(3, "Phone is required").max(20),
   role: z.string().min(1, "Role is required"),
+  department_id: z.union([z.number().int().positive(), z.string().min(1, "Department is required")]),
 }).strict() as z.ZodType<UpdateUserPayload, z.ZodTypeDef, UpdateUserPayload>;
 
 /**
