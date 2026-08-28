@@ -24,6 +24,21 @@ function setCookie(name: string, value: string, maxAgeSeconds = 60 * 60 * 24 * 7
   document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
 }
 
+
+export function expireServerSession() {
+  if (!isBrowser()) return Promise.resolve();
+
+  return fetch(`${API_BASE_URL}/auth/expire-session`, {
+    method: "POST",
+    credentials: "include",
+    keepalive: true,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+  }).then(() => undefined);
+}
+
 export function getToken() {
   return isBrowser() ? localStorage.getItem(TOKEN_KEY) : null;
 }
@@ -42,6 +57,7 @@ export function clearSession() {
   localStorage.removeItem("user");
   localStorage.removeItem("roles");
   localStorage.removeItem("permissions");
+  localStorage.removeItem("auth_last_activity_at");
 
   document.cookie = "token=; Path=/; Max-Age=0; SameSite=Lax";
   document.cookie = "roles=; Path=/; Max-Age=0; SameSite=Lax";
@@ -127,18 +143,26 @@ api.interceptors.response.use(
     ) {
       originalRequest._retry = true;
 
-      const newToken = await refreshAccessToken();
+      try {
+        const newToken = await refreshAccessToken();
 
-      if (newToken) {
-        const headers =
-          originalRequest.headers instanceof AxiosHeaders
-            ? originalRequest.headers
-            : new AxiosHeaders(originalRequest.headers);
+        if (newToken) {
+          const headers =
+            originalRequest.headers instanceof AxiosHeaders
+              ? originalRequest.headers
+              : new AxiosHeaders(originalRequest.headers);
 
-        headers.set("Authorization", `Bearer ${newToken}`);
-        originalRequest.headers = headers;
+          headers.set("Authorization", `Bearer ${newToken}`);
+          originalRequest.headers = headers;
 
-        return api(originalRequest);
+          return api(originalRequest);
+        }
+      } catch {
+        clearSession();
+        if (isBrowser() && !window.location.pathname.includes("/login")) {
+          window.location.href = "/login?reason=session-expired";
+        }
+        return Promise.reject(new Error("Your session has expired. Please sign in again."));
       }
     }
 

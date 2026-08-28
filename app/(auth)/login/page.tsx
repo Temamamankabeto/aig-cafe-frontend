@@ -30,7 +30,11 @@ export default function LoginPage() {
       toast.success("Logged in successfully");
       router.replace(dashboard.route);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Login failed");
+      const message = error instanceof Error ? error.message : "Login failed";
+      toast.error(message, {
+        id: "login-error",
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
     }

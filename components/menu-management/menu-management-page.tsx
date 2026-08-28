@@ -354,7 +354,7 @@ export function MenuManagementPage({
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [detailItem, setDetailItem] = useState<MenuItem | null>(null);
 
-  const categoriesQuery = useMenuCategoriesQuery({ per_page: 200 }, scope);
+  const categoriesQuery = useMenuCategoriesQuery({ per_page: 100 }, scope);
   const itemsQuery = useMenuItemsQuery(itemParams, scope);
   const toggleCategory = useToggleMenuCategoryMutation();
   const deleteCategory = useDeleteMenuCategoryMutation();

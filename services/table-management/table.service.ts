@@ -186,7 +186,7 @@ export const tableService = {
       // Fallback for backends without a waiters-lite endpoint.
     }
 
-    const response = await api.get("/admin/users", { params: cleanParams({ search, per_page: 200 }) });
+    const response = await api.get("/admin/users", { params: cleanParams({ search, per_page: 100 }) });
     const rows = extractRows<UserItem>(response.data);
     return rows.filter((user) => {
       const values = [

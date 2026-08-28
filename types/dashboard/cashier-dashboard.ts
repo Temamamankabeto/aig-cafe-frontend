@@ -1,66 +1,78 @@
 export type CashierDashboardSummary = {
-  orders: number;
-  gross_order_value: number;
-  payments_collected: number;
-  paid_transactions: number;
-  cash_collected: number;
-  credit_orders: number;
-  pending_bills: number;
-  pending_amount: number;
+  today_sales: number;
+  paid_orders: number;
+  open_bills: number;
+  open_bills_amount: number;
+  cash_sales: number;
+  cash_share: number;
+  non_cash_sales: number;
+  non_cash_share: number;
+  discounts: number;
+  discount_orders: number;
+  refunds: number;
+  refund_count: number;
+  expected_cash: number;
 };
 
 export type CashierPaymentMethod = {
   method: string;
   transactions: number;
   amount: number;
+  share: number;
 };
 
-export type CashierRecentOrder = {
-  id: number | string;
+export type CashierOpenBill = {
+  id: number;
+  order_id: number;
   order_number: string;
-  order_type: string;
   table?: string | null;
   waiter?: string | null;
-  status: string;
-  payment_type?: string | null;
-  payment_status?: string | null;
-  total: number;
-  ordered_at?: string | null;
-  bill_id?: number | string | null;
-  bill_status?: string | null;
-  balance: number;
+  items: number;
+  amount: number;
+  age_minutes: number;
+  order_type: string;
+  bill_status: string;
 };
 
-export type CashierShiftSummary = {
-  payments_count?: number;
-  cash_payments?: number | string;
-  card_payments?: number | string;
-  mobile_payments?: number | string;
-  transfer_payments?: number | string;
-  total_payments?: number | string;
-  expected_cash?: number | string;
+export type CashierRecentPayment = {
+  id: number;
+  receipt: string;
+  order: string;
+  method: string;
+  amount: number;
+  time?: string | null;
+  status: string;
 };
 
 export type CashierCurrentShift = {
-  id: number | string;
+  id: number;
+  session_number: string;
   status: "open" | "closed";
-  opening_cash: number | string;
+  opening_cash: number;
   opened_at?: string | null;
-  expected_cash?: number | string | null;
-  summary?: CashierShiftSummary;
+  cash_sales: number;
+  cash_refunds: number;
+  expected_cash: number;
 };
 
 export type CashierDashboardData = {
   business_date: string;
-  user: {
-    id: number | string;
-    name: string;
-  };
+  user: { id: number | string; name: string };
   current_shift: CashierCurrentShift | null;
   summary: CashierDashboardSummary;
-  order_statuses: Record<string, number>;
+  open_bills: CashierOpenBill[];
+  recent_payments: CashierRecentPayment[];
   payment_methods: CashierPaymentMethod[];
-  recent_orders: CashierRecentOrder[];
+  requires_attention: Array<{ label: string; count: number }>;
+  shift_summary: {
+    orders_paid: number;
+    gross_sales: number;
+    discount_orders: number;
+    discounts: number;
+    refund_count: number;
+    refunds: number;
+    net_collected: number;
+  };
 };
 
 export type CashierDashboardResponse = {
@@ -68,5 +80,5 @@ export type CashierDashboardResponse = {
   message: string;
   role: "cashier";
   data: CashierDashboardData;
-  meta: null;
+  meta?: { generated_at?: string } | null;
 };

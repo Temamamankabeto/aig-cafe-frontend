@@ -1,338 +1,74 @@
 "use client";
 
-import Link from "next/link";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle,
-  ArrowRight,
-  BarChart3,
-  Boxes,
-  ClipboardList,
-  Package,
-  PackageCheck,
-  PlusCircle,
-  SlidersHorizontal,
-  Trash2,
-  RefreshCcw,
-  TrendingUp,
-  Warehouse,
+  AlertTriangle, Boxes, ClipboardList, PackageCheck, RefreshCcw,
+  RotateCcw, SlidersHorizontal, TrendingUp, Truck, Warehouse
 } from "lucide-react";
-import { useInventoryBatches, useInventoryItems, useInventoryTransactions } from "@/hooks/inventory-management/useInventory";
+import api, { unwrap } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChartBarList, ChartContainer } from "@/components/ui/chart";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { InventoryItem, InventoryTransaction } from "@/types/inventory-management";
 
-function numberValue(value: unknown): number {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+type Data = {
+  kpis:{stock_items:number;healthy_items:number;stock_value:number;low_stock:number;out_of_stock:number;receiving:number;issues_today:number;issues_value:number;returns:number;transfers:number};
+  stock_health:{healthy:number;low:number;critical:number;out_of_stock:number};
+  requires_attention:Array<{label:string;count:number}>;
+  stock_balance:Array<{id:number;item:string;category:string;on_hand:number;unit:string;minimum:number;value:number;status:string}>;
+  movements:Array<{id:number;reference:string;item:string;movement:string;quantity:number;unit:string;direction:string}>;
+  expected_receiving:Array<{id:number;po_number:string;supplier:string;expected_date:string|null;status:string}>;
+  issue_requests:Array<{request_number:string;department:string;items:number;requested_by:string;status:string}>;
+  receivings:Array<{id:number;grn:string;po:string;supplier:string;ordered:number;received:number;difference:number;status:string}>;
+  low_stock_items:Array<{id:number;item:string;current:number;minimum:number;reorder_qty:number;unit:string;status:string}>;
+  physical_count:{items_due:number;counted:number;remaining:number;variances:number;configured:boolean};
+  summary:{received:number;issued:number;returned:number;adjusted:number;net_movement:number};
+};
+type Resp={success:boolean;data?:Data;message?:string};
+const mf=new Intl.NumberFormat("en-US",{style:"currency",currency:"ETB",maximumFractionDigits:0}); const money=(v:unknown)=>mf.format(Number(v||0));
+const titleize=(v:string)=>v.replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase());
 
-function money(value: number): string {
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ETB`;
-}
+function Kpi({title,value,note,icon:Icon}:{title:string;value:string;note:string;icon:React.ComponentType<{className?:string}>}){return <Card className="rounded-2xl"><CardContent className="p-5"><div className="mb-4 w-fit rounded-xl bg-primary/10 p-2.5 text-primary"><Icon className="h-5 w-5"/></div><p className="text-sm text-muted-foreground">{title}</p><p className="mt-1 text-2xl font-bold">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p></CardContent></Card>}
 
-function stockLevel(item: InventoryItem): number {
-  const minimum = Math.max(numberValue(item.minimum_quantity), 1);
-  return Math.min(100, Math.round((numberValue(item.current_stock) / minimum) * 100));
-}
+export default function StockKeeperDashboardPage(){
+  const [period,setPeriod]=useState("today"); const [search,setSearch]=useState("");
+  const q=useQuery({queryKey:["stock-keeper-dashboard-v2",period,search],queryFn:async()=>unwrap<Resp>(await api.get("/stock-keeper/dashboard",{params:{period,search:search||undefined}})),staleTime:30000,retry:1});
+  const d=q.data?.data;
+  if(q.isLoading&&!d)return <div className="space-y-5"><Skeleton className="h-20 rounded-2xl"/><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({length:8}).map((_,i)=><Skeleton key={i} className="h-32 rounded-2xl"/>)}</div></div>;
+  if(q.isError||!d)return <Alert variant="destructive"><AlertTriangle className="h-4 w-4"/><AlertTitle>Store Keeper dashboard could not be loaded</AlertTitle><AlertDescription className="mt-2"><Button size="sm" variant="outline" onClick={()=>q.refetch()}>Retry</Button></AlertDescription></Alert>;
 
-function transactionLabel(row: InventoryTransaction): string {
-  return String(row.transaction_type ?? row.type ?? "movement").replaceAll("_", " ");
-}
-
-export default function StockKeeperDashboardPage() {
-  const itemsQuery = useInventoryItems({ per_page: 100 }, "stock-keeper");
-  const transactionsQuery = useInventoryTransactions({ per_page: 8 }, "stock-keeper");
-  const batchesQuery = useInventoryBatches({ per_page: 100 }, "stock-keeper");
-
-  const items = itemsQuery.data?.data ?? [];
-  const transactions = transactionsQuery.data?.data ?? [];
-  const batches = batchesQuery.data?.data ?? [];
-  const loading = itemsQuery.isLoading || transactionsQuery.isLoading || batchesQuery.isLoading;
-
-  const activeItems = items.filter((item) => item.is_active !== false).length;
-  const lowStockItems = items.filter((item) => numberValue(item.current_stock) <= numberValue(item.minimum_quantity)).length;
-  const outOfStockItems = items.filter((item) => numberValue(item.current_stock) <= 0).length;
-  const totalValue = items.reduce(
-    (sum, item) => sum + numberValue(item.current_stock) * numberValue(item.average_purchase_price),
-    0,
-  );
-  const availableBatches = batches.filter((batch) => numberValue(batch.remaining_qty) > 0).length;
-  const healthyPercent = items.length ? Math.round(((items.length - lowStockItems) / items.length) * 100) : 0;
-
-  const topStock = [...items]
-    .sort((a, b) => numberValue(b.current_stock) - numberValue(a.current_stock))
-    .slice(0, 5)
-    .map((item) => ({
-      label: item.name,
-      value: numberValue(item.current_stock),
-      suffix: ` ${item.base_unit}`,
-    }));
-
-  const riskItems = [...items]
-    .sort((a, b) => stockLevel(a) - stockLevel(b))
-    .slice(0, 5);
-
-  const quickActions = [
-    {
-      title: "Request Purchase",
-      description: "Create purchase requests for required stock items.",
-      href: "/dashboard/purchases/requests",
-      icon: PlusCircle,
-    },
-    {
-      title: "Receive Approved Purchase",
-      description: "Receive approved purchase orders into inventory batches.",
-      href: "/dashboard/purchases/receiving",
-      icon: PackageCheck,
-    },
-    {
-      title: "Record Department Stockout",
-      description: "Issue stock out to Kitchen, Bar, or another department.",
-      href: "/dashboard/inventory/stockout",
-      icon: ClipboardList,
-    },
-    {
-      title: "Adjust Stock",
-      description: "Correct stock balances after physical counting.",
-      href: "/dashboard/inventory/adjustments",
-      icon: SlidersHorizontal,
-    },
-    {
-      title: "Waste / Damage",
-      description: "Record damaged, expired, or wasted stock.",
-      href: "/dashboard/inventory/waste",
-      icon: Trash2,
-    },
-    {
-      title: "Stock Movements",
-      description: "Audit stock-in, stock-out, adjustment, and waste records.",
-      href: "/dashboard/inventory/movements",
-      icon: Warehouse,
-    },
+  const cards=[
+    {title:"Stock Items",value:String(d.kpis.stock_items),note:`${d.kpis.healthy_items} healthy`,icon:Boxes},
+    {title:"Stock Value",value:money(d.kpis.stock_value),note:"Current inventory value",icon:TrendingUp},
+    {title:"Low Stock",value:String(d.kpis.low_stock),note:"Reorder required",icon:AlertTriangle},
+    {title:"Out of Stock",value:String(d.kpis.out_of_stock),note:"Critical",icon:Warehouse},
+    {title:"Receiving",value:String(d.kpis.receiving),note:"Expected deliveries",icon:PackageCheck},
+    {title:"Issues",value:String(d.kpis.issues_today),note:money(d.kpis.issues_value),icon:ClipboardList},
+    {title:"Returns",value:String(d.kpis.returns),note:"Selected period",icon:RotateCcw},
+    {title:"Transfers",value:String(d.kpis.transfers),note:"Selected period",icon:Truck},
   ];
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
-            <BarChart3 className="h-3.5 w-3.5" />
-            Store keeper operational dashboard
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Stock Keeper Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
-              Live purchase receiving, department stockout, adjustments, waste/damage, batch availability, and movement overview.
-            </p>
-          </div>
-        </div>
+  return <div className="space-y-6 pb-8">
+    <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className="text-sm font-medium text-primary">Store operations</p><h1 className="mt-1 text-2xl font-bold md:text-3xl">Store Keeper Dashboard</h1><p className="mt-1 text-sm text-muted-foreground">Stock health, receiving, issues, returns, movements and reorder control.</p></div><div className="flex flex-wrap gap-2"><Select value={period} onValueChange={setPeriod}><SelectTrigger className="w-[150px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="today">Today</SelectItem><SelectItem value="this_week">This Week</SelectItem><SelectItem value="this_month">This Month</SelectItem><SelectItem value="this_year">This Year</SelectItem></SelectContent></Select><Input className="w-[220px]" placeholder="Search Item..." value={search} onChange={e=>setSearch(e.target.value)}/><Button variant="outline" onClick={()=>q.refetch()} disabled={q.isFetching}><RefreshCcw className={`mr-2 h-4 w-4 ${q.isFetching?"animate-spin":""}`}/>Refresh</Button></div></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(c=><Kpi key={c.title} {...c}/>)}</section>
 
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href="/dashboard/stock-keeper/stock-workspace">Open Store Keeper Workspace</Link>
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              itemsQuery.refetch();
-              transactionsQuery.refetch();
-              batchesQuery.refetch();
-            }}
-          >
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
+    <section className="grid gap-4 xl:grid-cols-2"><Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Stock Health</CardTitle></CardHeader><CardContent className="space-y-4">{[["Healthy",d.stock_health.healthy],["Low",d.stock_health.low],["Critical",d.stock_health.critical],["Out of Stock",d.stock_health.out_of_stock]].map(([l,v])=><div key={String(l)}><div className="mb-1.5 flex justify-between text-sm"><span>{l}</span><strong>{v}</strong></div><Progress value={d.kpis.stock_items?Number(v)/d.kpis.stock_items*100:0}/></div>)}</CardContent></Card><Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Requires Attention</CardTitle></CardHeader><CardContent className="space-y-2">{d.requires_attention.map(r=><div key={r.label} className="flex items-center justify-between rounded-xl border px-3 py-2.5"><div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-muted-foreground"/><span className="text-sm">{r.label}</span></div><strong>{r.count}</strong></div>)}</CardContent></Card></section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inventory Value</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-8 w-28" /> : <div className="text-2xl font-bold">{money(totalValue)}</div>}
-            <p className="mt-1 text-xs text-muted-foreground">Based on current stock and average price.</p>
-          </CardContent>
-        </Card>
+    <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Stock Balance</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="border-b"><th className="px-3 py-3 text-left">Item</th><th className="px-3 py-3 text-left">Category</th><th className="px-3 py-3 text-right">On Hand</th><th className="px-3 py-3 text-right">Min</th><th className="px-3 py-3 text-right">Value</th><th className="px-3 py-3 text-right">Status</th></tr></thead><tbody>{d.stock_balance.map(r=><tr key={r.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{r.item}</td><td className="px-3 py-3">{r.category}</td><td className="px-3 py-3 text-right">{r.on_hand} {r.unit}</td><td className="px-3 py-3 text-right">{r.minimum} {r.unit}</td><td className="px-3 py-3 text-right">{money(r.value)}</td><td className="px-3 py-3 text-right"><Badge variant="outline">{titleize(r.status)}</Badge></td></tr>)}</tbody></table></CardContent></Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Items</CardTitle>
-            <Package className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-8 w-16" /> : <div className="text-2xl font-bold">{activeItems}</div>}
-            <p className="mt-1 text-xs text-muted-foreground">Total active stock items available.</p>
-          </CardContent>
-        </Card>
+    <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Stock Movement</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[800px] text-sm"><thead><tr className="border-b"><th className="px-3 py-3 text-left">Reference</th><th className="px-3 py-3 text-left">Item</th><th className="px-3 py-3 text-left">Movement</th><th className="px-3 py-3 text-right">Qty</th><th className="px-3 py-3 text-left">From → To</th></tr></thead><tbody>{d.movements.map(r=><tr key={r.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{r.reference}</td><td className="px-3 py-3">{r.item}</td><td className="px-3 py-3">{r.movement}</td><td className="px-3 py-3 text-right">{r.quantity} {r.unit}</td><td className="px-3 py-3">{r.direction}</td></tr>)}</tbody></table></CardContent></Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Low Stock Risk</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-8 w-16" /> : <div className="text-2xl font-bold">{lowStockItems}</div>}
-            <p className="mt-1 text-xs text-muted-foreground">{outOfStockItems} item(s) currently out of stock.</p>
-          </CardContent>
-        </Card>
+    <section className="grid gap-4 xl:grid-cols-2"><Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Expected Receiving</CardTitle></CardHeader><CardContent className="space-y-2">{d.expected_receiving.map(r=><div key={r.id} className="grid grid-cols-[auto_1fr_auto] gap-3 rounded-xl border px-3 py-2.5 text-sm"><span className="font-medium">{r.po_number}</span><span>{r.supplier}</span><span>{r.expected_date??"—"}</span></div>)}</CardContent></Card><Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Issue Requests</CardTitle></CardHeader><CardContent className="space-y-2">{d.issue_requests.map(r=><div key={r.request_number} className="grid grid-cols-[auto_1fr_auto] gap-3 rounded-xl border px-3 py-2.5 text-sm"><span className="font-medium">{r.request_number}</span><span>{r.department} · {r.items} items</span><Badge variant="outline">{titleize(r.status)}</Badge></div>)}</CardContent></Card></section>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Available Batches</CardTitle>
-            <Boxes className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-8 w-16" /> : <div className="text-2xl font-bold">{availableBatches}</div>}
-            <p className="mt-1 text-xs text-muted-foreground">Batches with remaining quantity.</p>
-          </CardContent>
-        </Card>
-      </div>
+    <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Receiving / GRN</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[800px] text-sm"><thead><tr className="border-b"><th className="px-3 py-3 text-left">GRN</th><th className="px-3 py-3 text-left">PO</th><th className="px-3 py-3 text-left">Supplier</th><th className="px-3 py-3 text-right">Ordered</th><th className="px-3 py-3 text-right">Received</th><th className="px-3 py-3 text-right">Difference</th><th className="px-3 py-3 text-right">Status</th></tr></thead><tbody>{d.receivings.map(r=><tr key={r.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{r.grn}</td><td className="px-3 py-3">{r.po}</td><td className="px-3 py-3">{r.supplier}</td><td className="px-3 py-3 text-right">{r.ordered}</td><td className="px-3 py-3 text-right">{r.received}</td><td className="px-3 py-3 text-right">{r.difference}</td><td className="px-3 py-3 text-right"><Badge variant="outline">{titleize(r.status)}</Badge></td></tr>)}</tbody></table></CardContent></Card>
 
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
-        <ChartContainer title="Stock balance by item" description="Highest available stock quantity by base unit.">
-          <ChartBarList data={topStock} emptyLabel="No inventory balance available" />
-        </ChartContainer>
+    <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Low Stock / Reorder</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead><tr className="border-b"><th className="px-3 py-3 text-left">Item</th><th className="px-3 py-3 text-right">Current</th><th className="px-3 py-3 text-right">Minimum</th><th className="px-3 py-3 text-right">Reorder Qty</th><th className="px-3 py-3 text-right">Status</th></tr></thead><tbody>{d.low_stock_items.map(r=><tr key={r.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{r.item}</td><td className="px-3 py-3 text-right">{r.current} {r.unit}</td><td className="px-3 py-3 text-right">{r.minimum} {r.unit}</td><td className="px-3 py-3 text-right">{r.reorder_qty} {r.unit}</td><td className="px-3 py-3 text-right"><Badge variant="outline">{titleize(r.status)}</Badge></td></tr>)}</tbody></table></CardContent></Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between gap-3 text-sm">
-              Stock Health
-              <Badge variant="outline">{healthyPercent}% healthy</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Progress value={healthyPercent} />
-            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-              <div className="rounded-xl border bg-card p-3">
-                <div className="font-bold">{items.length}</div>
-                <div className="text-muted-foreground">Items</div>
-              </div>
-              <div className="rounded-xl border bg-card p-3">
-                <div className="font-bold">{lowStockItems}</div>
-                <div className="text-muted-foreground">Low</div>
-              </div>
-              <div className="rounded-xl border bg-card p-3">
-                <div className="font-bold">{outOfStockItems}</div>
-                <div className="text-muted-foreground">Empty</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Card className="rounded-2xl shadow-sm xl:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <div>
-              <CardTitle className="text-sm">Recent Stock Movements</CardTitle>
-              <p className="text-xs text-muted-foreground">Latest inventory transactions recorded by store operations.</p>
-            </div>
-            <Button asChild size="sm" variant="outline">
-              <Link href="/dashboard/inventory/items?tab=movements">View all</Link>
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-hidden rounded-xl border">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-medium">Item</th>
-                    <th className="px-4 py-3 text-left font-medium">Type</th>
-                    <th className="px-4 py-3 text-left font-medium">Qty</th>
-                    <th className="px-4 py-3 text-left font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    Array.from({ length: 4 }).map((_, index) => (
-                      <tr key={index} className="border-t">
-                        <td className="px-4 py-3" colSpan={4}><Skeleton className="h-4 w-full" /></td>
-                      </tr>
-                    ))
-                  ) : transactions.length ? (
-                    transactions.map((row) => (
-                      <tr key={row.id} className="border-t">
-                        <td className="px-4 py-3 font-medium">{row.inventory_item?.name ?? row.inventoryItem?.name ?? "Inventory item"}</td>
-                        <td className="px-4 py-3 capitalize text-muted-foreground">{transactionLabel(row)}</td>
-                        <td className="px-4 py-3">{numberValue(row.quantity).toLocaleString()}</td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {row.created_at ? new Date(row.created_at).toLocaleDateString() : "-"}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={4}>No stock movements recorded.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-sm">Low Stock Watchlist</CardTitle>
-            <p className="text-xs text-muted-foreground">Items closest to their minimum quantity.</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {loading ? (
-              Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-12 w-full" />)
-            ) : riskItems.length ? (
-              riskItems.map((item) => {
-                const level = stockLevel(item);
-                return (
-                  <div key={item.id} className="rounded-xl border p-3">
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium">{item.name}</span>
-                      <Badge variant={level <= 100 ? "outline" : "secondary"}>{numberValue(item.current_stock)} {item.base_unit}</Badge>
-                    </div>
-                    <div className="mt-3 space-y-1">
-                      <Progress value={Math.min(level, 100)} />
-                      <p className="text-xs text-muted-foreground">Minimum: {numberValue(item.minimum_quantity)} {item.base_unit}</p>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">No inventory items found.</div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        {quickActions.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Card key={item.href} className="rounded-2xl shadow-sm transition hover:border-primary/40 hover:shadow-md">
-              <CardHeader className="flex flex-row items-center gap-3 space-y-0">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <CardTitle className="text-sm">{item.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-xs text-muted-foreground">{item.description}</p>
-                <Button asChild variant="ghost" className="w-full justify-between">
-                  <Link href={item.href}>
-                    Open
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
+    <section className="grid gap-4 xl:grid-cols-2"><Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Physical Count</CardTitle><CardDescription>{d.physical_count.configured?"Current count cycle":"Physical-count scheduling is not configured yet."}</CardDescription></CardHeader><CardContent className="space-y-3 text-sm"><div className="flex justify-between"><span>Items Due</span><strong>{d.physical_count.items_due}</strong></div><div className="flex justify-between"><span>Counted</span><strong>{d.physical_count.counted}</strong></div><div className="flex justify-between"><span>Remaining</span><strong>{d.physical_count.remaining}</strong></div><div className="flex justify-between"><span>Recorded Variances</span><strong>{d.physical_count.variances}</strong></div></CardContent></Card><Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Today's Summary</CardTitle></CardHeader><CardContent className="space-y-3 text-sm"><div className="flex justify-between"><span>Received</span><strong>{money(d.summary.received)}</strong></div><div className="flex justify-between"><span>Issued</span><strong>{money(d.summary.issued)}</strong></div><div className="flex justify-between"><span>Returned</span><strong>{money(d.summary.returned)}</strong></div><div className="flex justify-between"><span>Adjusted</span><strong>{money(d.summary.adjusted)}</strong></div><div className="flex justify-between border-t pt-3"><span className="font-semibold">Net Movement</span><strong>{money(d.summary.net_movement)}</strong></div></CardContent></Card></section>
+  </div>
 }

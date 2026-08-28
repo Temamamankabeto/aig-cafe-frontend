@@ -100,11 +100,11 @@ function StatCard({ title, value, note, icon: Icon }: { title: string; value: nu
 }
 
 export function RecipesTabPage({ scope = "food-controller" }: { scope?: Scope }) {
-  const recipesQuery = useRecipesQuery({ per_page: 500 }, scope);
+  const recipesQuery = useRecipesQuery({ per_page: 100 }, scope);
   const recipes = recipesQuery.data?.data ?? [];
 
-  const menuItems = useMenuItemsQuery({ per_page: 500, is_active: true }, scope);
-  const inventoryItems = useInventoryItemsQuery({ per_page: 500 }, scope);
+  const menuItems = useMenuItemsQuery({ per_page: 100, is_active: true }, scope);
+  const inventoryItems = useInventoryItemsQuery({ per_page: 100 }, scope);
 
   const createRecipe = useCreateRecipeMutation(undefined, scope);
   const updateRecipe = useUpdateRecipeMutation(undefined, scope);

@@ -94,6 +94,21 @@ export const authService = {
     return normalizeLoginResponse(unwrap<LoginResponse>(response));
   },
 
+  async forgotPassword(email: string) {
+    const response = await api.post("/auth/forgot-password", { email });
+    return unwrap<{ success: boolean; message: string }>(response);
+  },
+
+  async resetPassword(payload: {
+    token: string;
+    email: string;
+    password: string;
+    password_confirmation: string;
+  }) {
+    const response = await api.post("/auth/reset-password", payload);
+    return unwrap<{ success: boolean; message: string }>(response);
+  },
+
   async me() {
     const response = await api.get("/auth/me");
     return unwrap<AuthUser>(response);

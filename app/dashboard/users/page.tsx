@@ -285,6 +285,25 @@ if (!parsed.success) {
         </Button>
       </div>
 
+      <div className="flex w-fit items-center gap-1 rounded-xl border bg-card p-1">
+        <Button asChild size="sm" className="rounded-lg">
+          <Link href="/dashboard/users">
+            Users
+            <Badge variant="secondary" className="ml-2">
+              {meta?.total ?? rows.length}
+            </Badge>
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant="ghost" className="rounded-lg">
+          <Link href="/dashboard/users/roles">
+            Roles
+            <Badge variant="outline" className="ml-2">
+              {roles.length}
+            </Badge>
+          </Link>
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

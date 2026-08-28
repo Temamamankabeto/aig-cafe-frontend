@@ -308,7 +308,7 @@ export function OrdersPage({
         </div>
       </div>
 
-      {scope !== "cashier" && (
+      {scope !== "cashier" && scope !== "admin" && (
         <div className="grid gap-4 md:grid-cols-4">
           <Card className="rounded-2xl">
             <CardHeader className="pb-2">
@@ -355,7 +355,12 @@ export function OrdersPage({
           <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
             <Select
               value={filters.period}
-              onValueChange={(period: Period) => updateFilter({ period })}
+              onValueChange={(period: Period) =>
+                updateFilter({
+                  period,
+                  ...(period === "custom" ? {} : { date_from: "", date_to: "" }),
+                })
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -405,6 +410,7 @@ export function OrdersPage({
                 <SelectItem value="all">All types</SelectItem>
                 <SelectItem value="dine_in">Dine in</SelectItem>
                 <SelectItem value="takeaway">Takeaway</SelectItem>
+                <SelectItem value="delivery">Delivery</SelectItem>
               </SelectContent>
             </Select>
 
@@ -667,23 +673,23 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     date_from: "",
     date_to: "",
   });
-  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
-  const waitersQuery = useWaitersLiteQuery("", scope === "cashier");
+  const waitersQuery = useWaitersLiteQuery("", scope !== "waiter");
   const waiters = waitersQuery.data ?? [];
 
   const query = useOrdersQuery(
     {
-      ...filters,
-      page: 1,
-      per_page: 500,
-      status: "all",
-      order_type: "all",
-      payment_status: "all",
-      search: "",
+      page: filters.page,
+      per_page: filters.per_page,
+      payment_type: filters.payment_type === "all" ? undefined : filters.payment_type,
+      waiter_id: filters.waiter_id === "all" ? undefined : filters.waiter_id,
+      period: filters.period,
+      date_from: filters.period === "custom" ? filters.date_from || undefined : undefined,
+      date_to: filters.period === "custom" ? filters.date_to || undefined : undefined,
     },
     scope === "cashier" ? "cashier" : scope === "waiter" ? "waiter" : "admin",
   );
   const orders = query.data?.data ?? [];
+  const serverMeta = query.data?.meta;
 
   const getOrderPaymentMethod = (order: Order) => {
     const raw = String(
@@ -859,44 +865,87 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order: Order) => {
-      const createdAt = (order as any).created_at ?? (order as any).createdAt;
-      if (!isInsideCustomDateRange(createdAt, filters)) return false;
-
       const paymentMethod = getOrderPaymentMethod(order);
-      if (
-        filters.payment_type !== "all" &&
-        filters.payment_type !== paymentMethod
-      ) {
-        return false;
-      }
-
-      const waiterId = String(
-        (order as any).waiter_id ??
-          (order as any).waiter?.id ??
-          (order as any).assigned_waiter?.id ??
-          "",
-      );
-      if (filters.waiter_id !== "all" && waiterId !== filters.waiter_id) {
-        return false;
-      }
-
       const creditMode = String((order as any).credit_order_mode ?? "").toLowerCase();
+
       return normalizeOrderItems(order).length > 0 ||
         (paymentMethod === "credit" && creditMode === "beef_based");
     });
-  }, [
-    orders,
-    filters.period,
-    filters.date_from,
-    filters.date_to,
-    filters.payment_type,
-    filters.waiter_id,
-  ]);
+  }, [orders]);
 
   const orderReports = useMemo(
     () => filteredOrders.map((order: Order) => buildOrderReport(order)),
     [filteredOrders],
   );
+
+  const aggregatedItems = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        key: string;
+        category: string;
+        itemName: string;
+        qty: number;
+        total: number;
+        unit: number;
+        waiterNames: Set<string>;
+        paymentMethods: Set<string>;
+      }
+    >();
+
+    orderReports.forEach((order) => {
+      order.items.forEach((item) => {
+        const category = String(item.category || "Uncategorized").trim();
+        const itemName = String(item.itemName || "Menu item").trim();
+        const key = `${category.toLowerCase()}::${itemName.toLowerCase()}`;
+
+        const existing = grouped.get(key) ?? {
+          key,
+          category,
+          itemName,
+          qty: 0,
+          total: 0,
+          unit: 0,
+          waiterNames: new Set<string>(),
+          paymentMethods: new Set<string>(),
+        };
+
+        existing.qty += Number(item.qty ?? 0);
+        existing.total += Number(item.total ?? 0);
+        if (order.waiterName && order.waiterName !== "—") {
+          existing.waiterNames.add(order.waiterName);
+        }
+        if (item.paymentMethod) {
+          existing.paymentMethods.add(item.paymentMethod);
+        }
+
+        grouped.set(key, existing);
+      });
+    });
+
+    return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        unit: item.qty > 0 ? item.total / item.qty : 0,
+        waiterName:
+          item.waiterNames.size === 1
+            ? Array.from(item.waiterNames)[0]
+            : item.waiterNames.size > 1
+              ? "Multiple"
+              : "—",
+        paymentMethod:
+          item.paymentMethods.size === 1
+            ? Array.from(item.paymentMethods)[0]
+            : item.paymentMethods.size > 1
+              ? "Mixed"
+              : "—",
+      }))
+      .sort(
+        (a, b) =>
+          a.category.localeCompare(b.category) ||
+          a.itemName.localeCompare(b.itemName),
+      );
+  }, [orderReports]);
 
   const totals = useMemo(() => {
     return orderReports.reduce(
@@ -920,19 +969,10 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     );
   }, [orderReports]);
 
-  const currentPage = Math.min(
-    filters.page,
-    Math.max(1, Math.ceil(orderReports.length / filters.per_page)),
-  );
-  const lastPage = Math.max(1, Math.ceil(orderReports.length / filters.per_page));
-  const paginatedOrders = useMemo(
-    () =>
-      orderReports.slice(
-        (currentPage - 1) * filters.per_page,
-        currentPage * filters.per_page,
-      ),
-    [orderReports, currentPage, filters.per_page],
-  );
+  const currentPage = serverMeta?.current_page ?? filters.page;
+  const lastPage = Math.max(serverMeta?.last_page ?? 1, 1);
+  const totalOrders = serverMeta?.total ?? orderReports.length;
+  const paginatedOrders = orderReports;
 
   const updateFilter = (patch: Partial<typeof filters>) =>
     setFilters((current) => ({ ...current, ...patch, page: 1 }));
@@ -946,16 +986,11 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 
-    const rows = orderReports
-      .flatMap((order) =>
-        order.items.map((item, itemIndex) => `
+    const rows = aggregatedItems
+      .map(
+        (item) => `
           <tr>
-            ${
-              itemIndex === 0
-                ? `<td rowspan="${order.items.length}">${escapeHtml(order.orderNumber)}</td>
-                   <td rowspan="${order.items.length}">${escapeHtml(order.waiterName)}</td>`
-                : ""
-            }
+            <td>${escapeHtml(item.waiterName)}</td>
             <td>${escapeHtml(item.category)}</td>
             <td>${escapeHtml(item.itemName)}</td>
             <td class="number">${escapeHtml(item.qty)}</td>
@@ -963,7 +998,6 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
             <td class="number">${escapeHtml(money(item.total))}</td>
             <td>${escapeHtml(item.paymentMethod)}</td>
           </tr>`,
-        ),
       )
       .join("");
 
@@ -1019,19 +1053,18 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
   <table class="report">
     <thead>
       <tr>
-        <th>Order number</th>
         <th>Waiter name</th>
         <th>Category</th>
         <th>Items</th>
         <th>Quantity</th>
-        <th>Price</th>
+        <th>Average unit price</th>
         <th>Total price</th>
         <th>Payment method</th>
       </tr>
     </thead>
-    <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:20px">No sold items found.</td></tr>'}</tbody>
+    <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:20px">No sold items found.</td></tr>'}</tbody>
   </table>
-  <div class="footer">Printed ${escapeHtml(new Date().toLocaleString())} · ${orderReports.length} filtered orders</div>
+  <div class="footer">Printed ${escapeHtml(new Date().toLocaleString())} · ${aggregatedItems.length} grouped sold items</div>
   <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); };<\/script>
 </body>
 </html>`);
@@ -1064,7 +1097,12 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
           <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
             <Select
               value={filters.period}
-              onValueChange={(period: Period) => updateFilter({ period })}
+              onValueChange={(period: Period) =>
+                updateFilter({
+                  period,
+                  ...(period === "custom" ? {} : { date_from: "", date_to: "" }),
+                })
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -1092,7 +1130,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
               </SelectContent>
             </Select>
 
-            {scope === "cashier" && (
+            {scope !== "waiter" && (
               <Select
                 value={filters.waiter_id}
                 onValueChange={(waiter_id) => updateFilter({ waiter_id })}
@@ -1154,12 +1192,11 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order number</TableHead>
                   <TableHead>Waiter name</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Items</TableHead>
                   <TableHead>Quantity</TableHead>
-                  <TableHead>Price</TableHead>
+                  <TableHead>Average unit price</TableHead>
                   <TableHead>Total price</TableHead>
                   <TableHead>Payment method</TableHead>
                 </TableRow>
@@ -1167,42 +1204,36 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
               <TableBody>
                 {query.isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       Loading sold items...
                     </TableCell>
                   </TableRow>
-                ) : paginatedOrders.length ? (
-                  paginatedOrders.flatMap((order) =>
-                    order.items.map((item, itemIndex) => (
-                      <TableRow key={item.key}>
-                        {itemIndex === 0 && (
-                          <TableCell rowSpan={order.items.length} className="align-top font-semibold">
-                            <button
-                              type="button"
-                              className="text-left font-semibold underline-offset-4 hover:underline"
-                              onClick={() => setSelectedOrder(order)}
-                            >
-                              {order.orderNumber}
-                            </button>
-                          </TableCell>
-                        )}
-                        {itemIndex === 0 && (
-                          <TableCell rowSpan={order.items.length} className="align-top">
-                            {order.waiterName}
-                          </TableCell>
-                        )}
-                        <TableCell className="align-top capitalize">{item.category}</TableCell>
+                ) : aggregatedItems.length ? (
+                  aggregatedItems.map((item, index) => {
+                    const previousCategory =
+                      index > 0 ? aggregatedItems[index - 1]?.category : null;
+                    const startsCategory = previousCategory !== item.category;
+
+                    return (
+                      <TableRow
+                        key={item.key}
+                        className={startsCategory ? "border-t-2" : undefined}
+                      >
+                        <TableCell className="align-top">{item.waiterName}</TableCell>
+                        <TableCell className="align-top font-semibold capitalize">
+                          {startsCategory ? item.category : ""}
+                        </TableCell>
                         <TableCell className="align-top font-medium">{item.itemName}</TableCell>
-                        <TableCell className="align-top">{item.qty}</TableCell>
+                        <TableCell className="align-top font-semibold">{item.qty}</TableCell>
                         <TableCell className="align-top">{money(item.unit)}</TableCell>
-                        <TableCell className="align-top font-medium">{money(item.total)}</TableCell>
+                        <TableCell className="align-top font-semibold">{money(item.total)}</TableCell>
                         <TableCell className="align-top capitalize">{item.paymentMethod}</TableCell>
                       </TableRow>
-                    )),
-                  )
+                    );
+                  })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       No sold items found.
                     </TableCell>
                   </TableRow>
@@ -1210,7 +1241,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
               </TableBody>
               <TableFooter>
                 <TableRow className="hover:bg-muted/50">
-                  <TableCell colSpan={6} className="text-right font-bold">
+                  <TableCell colSpan={5} className="text-right font-bold">
                     Total Price
                   </TableCell>
                   <TableCell className="font-bold">
@@ -1224,7 +1255,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
 
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              Page {currentPage} of {lastPage} · {orderReports.length} orders
+              Page {currentPage} of {lastPage} · {totalOrders} orders
             </p>
             <div className="flex gap-2">
               <Button
@@ -1256,71 +1287,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
         </CardContent>
       </Card>
 
-      <Dialog
-        open={Boolean(selectedOrder)}
-        onOpenChange={(open) => !open && setSelectedOrder(null)}
-      >
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>
-              Order detail {selectedOrder?.orderNumber ? `- ${selectedOrder.orderNumber}` : ""}
-            </DialogTitle>
-            <p className="text-sm text-muted-foreground">
-              All items, totals, service charge, VAT, and grand total for this order.
-            </p>
-          </DialogHeader>
 
-          <div className="overflow-x-auto rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Total price</TableHead>
-                  <TableHead>Payment method</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {selectedOrder?.items.map((item: any) => (
-                  <TableRow key={item.key}>
-                    <TableCell className="capitalize">{item.category}</TableCell>
-                    <TableCell>{item.itemName}</TableCell>
-                    <TableCell>{item.qty}</TableCell>
-                    <TableCell>{money(item.unit)}</TableCell>
-                    <TableCell className="font-medium">{money(item.total)}</TableCell>
-                    <TableCell className="capitalize">{item.paymentMethod}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border">
-            <Table>
-              <TableBody>
-                <TableRow>
-                  <TableCell className="font-semibold">Order total price</TableCell>
-                  <TableCell className="text-right font-medium">{money(selectedOrder?.itemsTotal)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="font-semibold">Service charge</TableCell>
-                  <TableCell className="text-right font-medium">{money(selectedOrder?.serviceCharge)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="font-semibold">VAT</TableCell>
-                  <TableCell className="text-right font-medium">{money(selectedOrder?.vat)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="font-semibold">Grand / Net total</TableCell>
-                  <TableCell className="text-right font-bold">{money(selectedOrder?.grandTotal)}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

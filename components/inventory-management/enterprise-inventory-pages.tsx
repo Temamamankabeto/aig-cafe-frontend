@@ -94,7 +94,7 @@ function Header({
 function useInventoryItems(scope: InventoryRoleScope) {
   return useQuery({
     queryKey: ["inventory-items", scope],
-    queryFn: () => inventoryService.items({ per_page: 200 }, scope),
+    queryFn: () => inventoryService.items({ per_page: 100 }, scope),
   });
 }
 
@@ -103,7 +103,7 @@ function useMenuItems(scope: InventoryRoleScope) {
     queryKey: ["menu-items", scope],
     queryFn: () =>
       inventoryService.menuItems(
-        { per_page: 200, is_active: true },
+        { per_page: 100, is_active: true },
         scope
       ),
   });
@@ -119,7 +119,7 @@ function useMovements(scope: InventoryRoleScope) {
 function useBatches(scope: InventoryRoleScope) {
   return useQuery({
     queryKey: ["batches", scope],
-    queryFn: () => inventoryService.batches({ per_page: 200 }, scope),
+    queryFn: () => inventoryService.batches({ per_page: 100 }, scope),
   });
 }
 

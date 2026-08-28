@@ -1,376 +1,117 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  ArrowRight,
-  BarChart3,
   CheckCircle2,
-  FileText,
-  Loader2,
+  Clock3,
   PackageCheck,
   RefreshCcw,
-  ShieldCheck,
   ShoppingCart,
+  Store,
+  TrendingUp,
+  Truck,
+  Users,
 } from "lucide-react";
 
+import api, { unwrap } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
-import {
-  procurementService,
-  type PurchaserDashboardData,
-  type PurchaserDashboardRecentRequest,
-} from "@/services/inventory-management/procurement.service";
-
-/**
- * SAFE EMPTY STATE (must match service type)
- */
-const emptyDashboard: PurchaserDashboardData = {
+type Data = {
+  filters: { suppliers: Array<{ id: number; name: string }> };
   kpis: {
-    total_requests: 0,
-    requests_this_week: 0,
-    pending_validation: 0,
-    validated: 0,
-    manager_approved: 0,
-    partially_received: 0,
-    completed: 0,
-    rejected: 0,
-    monthly_cost: 0,
-    low_stock_items: 0,
-  },
-
-  status_distribution: [],
-  workflow: [],
-  trend: [],
-  recent_requests: [],
-
-  alerts: {
-    pending_validation: 0,
-    pending_manager_approval: 0,
-    approved_awaiting_receiving: 0,
-    low_stock_items: 0,
-    rejected_requests: 0,
-  },
+    approved_pr: number; open_po: number; order_value: number; due_delivery: number;
+    received_po: number; partial: number; suppliers: number; active_suppliers: number; price_change: number;
+  };
+  pipeline: Array<{ label: string; value: number }>;
+  requires_attention: Array<{ label: string; count: number }>;
+  approved_requests: Array<{ id: number; pr_number: string; department: string; items: number; estimated_amount: number; approved_by: string; age: string }>;
+  active_purchase_orders: Array<{ id: number; po_number: string; supplier: string; amount: number; delivery: string; received_percent: number; status: string }>;
+  purchase_spend: Array<{ category: string; amount: number }>;
+  supplier_performance: Array<{ id: number; supplier: string; on_time_percent: number; orders: number }>;
+  price_changes: Array<{ id: number; item: string; unit: string; previous: number; current: number; change: number; supplier: string }>;
 };
+type ApiResponse = { success: boolean; data?: Data; message?: string };
 
-function formatMoney(value: number | string | null | undefined) {
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-  }).format(Number(value ?? 0));
-}
+const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "ETB", maximumFractionDigits: 0 });
+const money = (v: unknown) => moneyFmt.format(Number(v || 0));
+const titleize = (v: string) => v.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 
-function formatCompact(value: number | string | null | undefined) {
-  return new Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(Number(value ?? 0));
-}
-
-/**
- * Safe status badge renderer
- */
-function statusBadge(status: string) {
-  const label = status.replace(/_/g, " ");
-
-  if (["approved", "completed", "received"].includes(status)) {
-    return <Badge>{label}</Badge>;
-  }
-
-  if (
-    ["fb_validated", "food_validated", "partially_received"].includes(status)
-  ) {
-    return <Badge variant="secondary">{label}</Badge>;
-  }
-
-  if (["validation_rejected", "cancelled"].includes(status)) {
-    return <Badge variant="destructive">{label}</Badge>;
-  }
-
-  return <Badge variant="outline">{label}</Badge>;
-}
-
-/**
- * SAFE item renderer (fixes missing API fields issue)
- */
-function requestItems(row: PurchaserDashboardRecentRequest) {
-  const anyRow = row as any;
-
-  if (Array.isArray(anyRow.items)) {
-    return `${anyRow.items.length} item${anyRow.items.length === 1 ? "" : "s"}`;
-  }
-
-  if (typeof anyRow.items_count === "number") {
-    return `${anyRow.items_count} item${
-      anyRow.items_count === 1 ? "" : "s"
-    }`;
-  }
-
-  return "No items";
+function Kpi({ title, value, note, icon: Icon }: { title: string; value: string; note: string; icon: React.ComponentType<{className?: string}> }) {
+  return <Card className="rounded-2xl"><CardContent className="p-5">
+    <div className="mb-4 w-fit rounded-xl bg-primary/10 p-2.5 text-primary"><Icon className="h-5 w-5"/></div>
+    <p className="text-sm text-muted-foreground">{title}</p><p className="mt-1 text-2xl font-bold">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p>
+  </CardContent></Card>;
 }
 
 export default function PurchaserDashboardPage() {
-  const [dashboard, setDashboard] =
-    useState<PurchaserDashboardData>(emptyDashboard);
+  const [period, setPeriod] = useState("this_month");
+  const [supplier, setSupplier] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [search, setSearch] = useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const query = useQuery({
+    queryKey: ["purchaser-dashboard-v2", period, supplier, status, search],
+    queryFn: async () => unwrap<ApiResponse>(await api.get("/purchaser/dashboard", { params: {
+      period, supplier_id: supplier === "all" ? undefined : supplier,
+      status: status === "all" ? undefined : status,
+      search: search || undefined,
+    }})),
+    staleTime: 30_000, retry: 1,
+  });
+  const data = query.data?.data;
+  const maxSpend = useMemo(() => Math.max(1, ...(data?.purchase_spend ?? []).map((r) => r.amount)), [data?.purchase_spend]);
 
-  const loadDashboard = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  if (query.isLoading && !data) return <div className="space-y-5"><Skeleton className="h-20 rounded-2xl"/><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({length:8}).map((_,i)=><Skeleton key={i} className="h-32 rounded-2xl"/>)}</div></div>;
+  if (query.isError || !data) return <Alert variant="destructive"><AlertTriangle className="h-4 w-4"/><AlertTitle>Purchaser dashboard could not be loaded</AlertTitle><AlertDescription className="mt-2"><Button size="sm" variant="outline" onClick={()=>query.refetch()}>Retry</Button></AlertDescription></Alert>;
 
-      const data = await procurementService.purchaserDashboard();
-
-      setDashboard(data ?? emptyDashboard);
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message ??
-          "Unable to load purchaser dashboard."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadDashboard();
-  }, []);
-
-  const statusTotal = useMemo(() => {
-    return dashboard.status_distribution.reduce(
-      (sum, item) => sum + Number(item.value ?? 0),
-      0
-    );
-  }, [dashboard.status_distribution]);
-
-  const kpis = [
-    {
-      title: "Purchase Requests",
-      value: dashboard.kpis.total_requests,
-      caption: `+${dashboard.kpis.requests_this_week} this week`,
-      icon: FileText,
-    },
-    {
-      title: "Pending Validation",
-      value: dashboard.kpis.pending_validation,
-      caption: "F&B review",
-      icon: ShieldCheck,
-    },
-    {
-      title: "Manager Approved",
-      value: dashboard.kpis.manager_approved,
-      caption: "Ready to receive",
-      icon: CheckCircle2,
-    },
-    {
-      title: "Monthly Cost",
-      value: formatCompact(dashboard.kpis.monthly_cost),
-      caption: "ETB committed",
-      icon: ShoppingCart,
-    },
+  const cards = [
+    {title:"Approved PR",value:String(data.kpis.approved_pr),note:"Ready for purchasing",icon:CheckCircle2},
+    {title:"Open PO",value:String(data.kpis.open_po),note:"Active purchase orders",icon:ShoppingCart},
+    {title:"Order Value",value:money(data.kpis.order_value),note:"Selected period",icon:TrendingUp},
+    {title:"Due Delivery",value:String(data.kpis.due_delivery),note:"Needs action",icon:Clock3},
+    {title:"Received PO",value:String(data.kpis.received_po),note:"Selected period",icon:PackageCheck},
+    {title:"Partial",value:String(data.kpis.partial),note:"Partial deliveries",icon:Truck},
+    {title:"Suppliers",value:String(data.kpis.suppliers),note:`${data.kpis.active_suppliers} active`,icon:Users},
+    {title:"Price Change",value:String(data.kpis.price_change),note:"Review purchase costs",icon:AlertTriangle},
   ];
 
-  return (
-    <div className="space-y-6 p-6">
-      {/* HEADER */}
-      <section className="rounded-2xl border bg-card p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <Badge variant="secondary" className="mb-3">
-              Procurement Control Center
-            </Badge>
-            <h1 className="text-2xl font-semibold">
-              Purchaser Dashboard
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Overview of procurement pipeline and supplier activity.
-            </p>
-          </div>
+  return <div className="space-y-6 pb-8">
+    <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div><p className="text-sm font-medium text-primary">Procurement operations</p><h1 className="mt-1 text-2xl font-bold md:text-3xl">Purchaser Dashboard</h1><p className="mt-1 text-sm text-muted-foreground">Approved requests, purchase orders, deliveries, supplier performance and purchase-cost changes.</p></div>
+      <div className="flex flex-wrap gap-2">
+        <Select value={period} onValueChange={setPeriod}><SelectTrigger className="w-[150px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="today">Today</SelectItem><SelectItem value="this_week">This Week</SelectItem><SelectItem value="this_month">This Month</SelectItem><SelectItem value="this_year">This Year</SelectItem></SelectContent></Select>
+        <Select value={supplier} onValueChange={setSupplier}><SelectTrigger className="w-[180px]"><SelectValue placeholder="All Suppliers"/></SelectTrigger><SelectContent><SelectItem value="all">All Suppliers</SelectItem>{data.filters.suppliers.map(s=><SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent></Select>
+        <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-[165px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All Statuses</SelectItem><SelectItem value="draft">Draft</SelectItem><SelectItem value="submitted">Submitted</SelectItem><SelectItem value="food_validated">Validated</SelectItem><SelectItem value="approved">Approved</SelectItem><SelectItem value="partially_received">Partial</SelectItem><SelectItem value="completed">Completed</SelectItem><SelectItem value="received">Received</SelectItem></SelectContent></Select>
+        <Input className="w-[210px]" placeholder="Search..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <Button variant="outline" onClick={()=>query.refetch()} disabled={query.isFetching}><RefreshCcw className={`mr-2 h-4 w-4 ${query.isFetching?"animate-spin":""}`}/>Refresh</Button>
+      </div>
+    </section>
 
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadDashboard}
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCcw className="mr-2 h-4 w-4" />
-              )}
-              Refresh
-            </Button>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(c=><Kpi key={c.title} {...c}/>)}</section>
 
-            <Button size="sm" asChild>
-              <Link href="/dashboard/purchases/requests/create">
-                New request <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </section>
+    <section className="grid gap-4 xl:grid-cols-2">
+      <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Procurement Pipeline</CardTitle></CardHeader><CardContent className="space-y-3">{data.pipeline.map((r,i)=><div key={r.label} className="flex items-center justify-between rounded-xl border px-3 py-2.5"><span className="text-sm font-medium">{r.label}</span><strong>{r.value}</strong></div>)}</CardContent></Card>
+      <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Requires Attention</CardTitle></CardHeader><CardContent className="space-y-2">{data.requires_attention.map(r=><div key={r.label} className="flex items-center justify-between rounded-xl border px-3 py-2.5"><div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-muted-foreground"/><span className="text-sm">{r.label}</span></div><strong>{r.count}</strong></div>)}</CardContent></Card>
+    </section>
 
-      {/* ERROR */}
-      {error && (
-        <Card className="border-destructive/40">
-          <CardContent className="p-4 text-sm text-destructive">
-            {error}
-          </CardContent>
-        </Card>
-      )}
+    <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Approved Purchase Requests</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[780px] text-sm"><thead><tr className="border-b"><th className="px-3 py-3 text-left">PR No.</th><th className="px-3 py-3 text-left">Department</th><th className="px-3 py-3 text-right">Items</th><th className="px-3 py-3 text-right">Est. Amount</th><th className="px-3 py-3 text-left">Approved</th><th className="px-3 py-3 text-right">Age</th></tr></thead><tbody>{data.approved_requests.map(r=><tr key={r.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{r.pr_number}</td><td className="px-3 py-3">{r.department}</td><td className="px-3 py-3 text-right">{r.items}</td><td className="px-3 py-3 text-right">{money(r.estimated_amount)}</td><td className="px-3 py-3">{r.approved_by}</td><td className="px-3 py-3 text-right">{r.age}</td></tr>)}</tbody></table></CardContent></Card>
 
-      {/* KPI */}
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Card key={item.title}>
-              <CardContent className="p-5">
-                <div className="flex justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">
-                      {item.title}
-                    </p>
-                    <h2 className="text-3xl font-semibold">
-                      {item.value}
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      {item.caption}
-                    </p>
-                  </div>
-                  <Icon className="h-5 w-5" />
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </section>
+    <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Active Purchase Orders</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b"><th className="px-3 py-3 text-left">PO No.</th><th className="px-3 py-3 text-left">Supplier</th><th className="px-3 py-3 text-right">Amount</th><th className="px-3 py-3 text-right">Delivery</th><th className="px-3 py-3 text-right">Received</th><th className="px-3 py-3 text-right">Status</th></tr></thead><tbody>{data.active_purchase_orders.map(r=><tr key={r.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{r.po_number}</td><td className="px-3 py-3">{r.supplier}</td><td className="px-3 py-3 text-right">{money(r.amount)}</td><td className="px-3 py-3 text-right">{r.delivery}</td><td className="px-3 py-3 text-right">{r.received_percent}%</td><td className="px-3 py-3 text-right"><Badge variant="outline">{titleize(r.status)}</Badge></td></tr>)}</tbody></table></CardContent></Card>
 
-      {/* STATUS + ALERTS */}
-      <section className="grid gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BarChart3 className="h-4 w-4" />
-              Status Distribution
-            </CardTitle>
-          </CardHeader>
+    <section className="grid gap-4 xl:grid-cols-2">
+      <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Purchase Spend</CardTitle></CardHeader><CardContent className="space-y-4">{data.purchase_spend.map(r=><div key={r.category}><div className="mb-1.5 flex justify-between text-sm"><span>{r.category}</span><strong>{money(r.amount)}</strong></div><Progress value={(r.amount/maxSpend)*100}/></div>)}</CardContent></Card>
+      <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Supplier Performance</CardTitle></CardHeader><CardContent className="space-y-3">{data.supplier_performance.map(r=><div key={r.id} className="rounded-xl border p-3"><div className="flex justify-between text-sm"><span className="font-medium">{r.supplier}</span><strong>{r.on_time_percent}% On Time</strong></div><Progress className="mt-2" value={r.on_time_percent}/></div>)}</CardContent></Card>
+    </section>
 
-          <CardContent className="space-y-4">
-            {dashboard.status_distribution.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No data available.
-              </p>
-            ) : (
-              dashboard.status_distribution.map((item) => {
-                const value = Number(item.value ?? 0);
-                const percent =
-                  statusTotal > 0
-                    ? Math.round((value / statusTotal) * 100)
-                    : 0;
-
-                return (
-                  <div key={item.status}>
-                    <div className="flex justify-between text-sm">
-                      <span>{item.label}</span>
-                      <span>{value}</span>
-                    </div>
-                    <Progress value={percent} />
-                  </div>
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="h-4 w-4" />
-              Alerts
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent className="space-y-3 text-sm">
-            <div className="border rounded-xl p-3">
-              <p className="font-medium">
-                {dashboard.alerts.pending_validation} pending validation
-              </p>
-            </div>
-
-            <div className="border rounded-xl p-3">
-              <p className="font-medium">
-                {dashboard.alerts.approved_awaiting_receiving} awaiting receiving
-              </p>
-            </div>
-
-            <div className="border rounded-xl p-3">
-              <p className="font-medium">
-                {dashboard.alerts.low_stock_items} low stock items
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      {/* RECENT REQUESTS */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Requests</CardTitle>
-        </CardHeader>
-
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>PO</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-
-            <TableBody>
-              {dashboard.recent_requests.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-6">
-                    No requests found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                dashboard.recent_requests.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      {row.po_number ?? `PO-${row.id}`}
-                    </TableCell>
-                    <TableCell>{row.supplier}</TableCell>
-                    <TableCell>{requestItems(row)}</TableCell>
-                    <TableCell>
-                      {formatMoney(row.amount)} ETB
-                    </TableCell>
-                    <TableCell>{statusBadge(row.status)}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-  );
+    <Card className="rounded-2xl"><CardHeader><CardTitle className="text-base">Recent Purchase Price Changes</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b"><th className="px-3 py-3 text-left">Item</th><th className="px-3 py-3 text-right">Previous</th><th className="px-3 py-3 text-right">Current</th><th className="px-3 py-3 text-right">Change</th><th className="px-3 py-3 text-left">Supplier</th></tr></thead><tbody>{data.price_changes.map(r=><tr key={r.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{r.item}</td><td className="px-3 py-3 text-right">{money(r.previous)}/{r.unit}</td><td className="px-3 py-3 text-right">{money(r.current)}/{r.unit}</td><td className="px-3 py-3 text-right font-semibold">{r.change>=0?"+":""}{r.change}%</td><td className="px-3 py-3">{r.supplier}</td></tr>)}</tbody></table></CardContent></Card>
+  </div>;
 }

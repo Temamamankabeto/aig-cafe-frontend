@@ -47,7 +47,7 @@ function tableSection(table: DiningTable) {
 
 export function BulkAssignTablesModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { data: waiters = [], isLoading: waitersLoading } = useTableWaitersQuery();
-  const tablesQuery = useTablesQuery({ page: 1, per_page: 500, active: "all", status: "all", section: "all" });
+  const tablesQuery = useTablesQuery({ page: 1, per_page: 100, active: "all", status: "all", section: "all" });
   const assignMutation = useAssignTableWaiterMutation();
   const unassignMutation = useUnassignTableWaiterMutation();
 

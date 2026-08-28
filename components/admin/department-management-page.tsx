@@ -25,7 +25,7 @@ export function DepartmentManagementPage() {
   const [form, setForm] = useState<DepartmentPayload>(emptyForm);
   const query = useQuery({
     queryKey: ["admin", "departments", search],
-    queryFn: () => inventoryService.departments({ search, per_page: 200 }, "admin"),
+    queryFn: () => inventoryService.departments({ search, per_page: 100 }, "admin"),
   });
   const refresh = () => client.invalidateQueries({ queryKey: ["admin", "departments"] });
   const save = useMutation({

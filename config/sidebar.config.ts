@@ -18,8 +18,9 @@ import { dashboardConfig, normalizeRole, type AppRoleKey } from "@/config/dashbo
 
 export type SidebarChildItem = {
   label: string;
-  href: string;
+  href?: string;
   permission?: string;
+  children?: SidebarChildItem[];
 };
 
 export type SidebarItem = {
@@ -80,7 +81,6 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   "general-admin": roleSidebar("general-admin", ShieldCheck, [
     group("Administration", Settings, [
       { label: "Users", href: "/dashboard/users", permission: "users.read" },
-      { label: "Roles", href: "/dashboard/users/roles", permission: "roles.read" },
       { label: "Departments", href: "/dashboard/general-admin/departments", permission: "inventory.read" },
       { label: "Tables & Waiters", href: "/dashboard/modules/tables", permission: "tables.read" },
     ]),

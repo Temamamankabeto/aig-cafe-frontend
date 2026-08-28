@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Edit, KeyRound, Loader2, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
   useRolePermissionsQuery,
   useRolesQuery,
   useUpdateRoleMutation,
+  useUsersQuery,
 } from "@/hooks";
 import { roleSchema } from "@/lib/schemas/role.schema";
 import type { RoleItem } from "@/types/user-management/user.type";
@@ -36,6 +38,7 @@ export default function RolesPage() {
 
   const params = useMemo(() => ({ search, page, per_page: 10 }), [search, page]);
   const rolesQuery = useRolesQuery(params);
+  const usersCountQuery = useUsersQuery({ page: 1, per_page: 10, status: "all" });
   const permissionsCatalogQuery = useAllPermissionsQuery();
   const rolePermissionsQuery = useRolePermissionsQuery(selectedRole?.id);
 
@@ -111,6 +114,25 @@ export default function RolesPage() {
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div><h1 className="text-2xl font-bold">Roles</h1><p className="text-muted-foreground">View roles and manage assigned backend permissions.</p></div>
+      </div>
+
+      <div className="flex w-fit items-center gap-1 rounded-xl border bg-card p-1">
+        <Button asChild size="sm" variant="ghost" className="rounded-lg">
+          <Link href="/dashboard/users">
+            Users
+            <Badge variant="outline" className="ml-2">
+              {usersCountQuery.data?.meta.total ?? usersCountQuery.data?.data.length ?? 0}
+            </Badge>
+          </Link>
+        </Button>
+        <Button asChild size="sm" className="rounded-lg">
+          <Link href="/dashboard/users/roles">
+            Roles
+            <Badge variant="secondary" className="ml-2">
+              {meta?.total ?? rows.length}
+            </Badge>
+          </Link>
+        </Button>
       </div>
 
       <Card>

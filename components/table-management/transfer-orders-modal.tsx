@@ -21,7 +21,7 @@ export function TransferOrdersModal({
   onOpenChange: (open: boolean) => void;
   table?: DiningTable | null;
 }) {
-  const { data } = useTablesQuery({ per_page: 200, is_active: 1 });
+  const { data } = useTablesQuery({ per_page: 100, is_active: 1 });
   const transferMutation = useTransferTableOrdersMutation(() => onOpenChange(false));
   const [toTableId, setToTableId] = useState("");
   const [moveWaiters, setMoveWaiters] = useState(false);

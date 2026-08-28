@@ -8,7 +8,7 @@ import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { authService } from "@/services/auth/auth.service";
 import { procurementService } from "@/services/inventory-management/procurement.service";
-import { filterSidebarByPermissions, getSidebarForRole } from "@/config/sidebar.config";
+import { filterSidebarByPermissions, getSidebarForRole, type SidebarChildItem } from "@/config/sidebar.config";
 import { normalizeRole } from "@/config/dashboard.config";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +74,79 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
     setOpenMenus((current) => ({ ...current, [label]: !current[label] }));
   }
 
+  function childTreeIsActive(child: SidebarChildItem): boolean {
+    const selfActive = child.href ? isRouteActive(pathname, child.href) : false;
+    return selfActive || Boolean(child.children?.some(childTreeIsActive));
+  }
+
+  function renderChild(child: SidebarChildItem, depth = 0) {
+    const childActive = child.href ? isRouteActive(pathname, child.href) : false;
+    const hasNestedChildren = Boolean(child.children?.length);
+    const nestedActive = Boolean(child.children?.some(childTreeIsActive));
+    const menuKey = `child:${depth}:${child.label}`;
+    const isNestedOpen = openMenus[menuKey] ?? nestedActive;
+
+    if (hasNestedChildren) {
+      return (
+        <div key={menuKey} className="space-y-1">
+          <div className="flex items-center">
+            {child.href ? (
+              <Link
+                href={child.href}
+                className={cn(
+                  "min-w-0 flex-1 rounded-lg px-3 py-2 text-sm transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  childActive &&
+                    "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary hover:text-sidebar-primary-foreground",
+                )}
+              >
+                <span className="truncate">{child.label}</span>
+              </Link>
+            ) : (
+              <span className="min-w-0 flex-1 px-3 py-2 text-sm font-medium">{child.label}</span>
+            )}
+            <button
+              type="button"
+              aria-label={`${isNestedOpen ? "Collapse" : "Expand"} ${child.label}`}
+              onClick={() => toggleMenu(menuKey)}
+              className="rounded-lg p-2 text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <ChevronRight
+                className={cn(
+                  "h-3 w-3 transition-transform duration-200",
+                  isNestedOpen && "rotate-90",
+                )}
+              />
+            </button>
+          </div>
+
+          {isNestedOpen && (
+            <div className="ml-4 space-y-1 border-l border-sidebar-border pl-2">
+              {child.children?.map((nestedChild) => renderChild(nestedChild, depth + 1))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (!child.href) return null;
+
+    const badgeValue = purchaseBadgeValue(child.href);
+    return (
+      <Link
+        key={child.href}
+        href={child.href}
+        className={cn(
+          "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          childActive &&
+            "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary hover:text-sidebar-primary-foreground",
+        )}
+      >
+        <span className="truncate">{child.label}</span>
+        <MiniBadge value={badgeValue} />
+      </Link>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="border-b border-sidebar-border p-4">
@@ -110,7 +183,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
                 const active = item.href ? isRouteActive(pathname, item.href) : false;
                 const hasChildren = Boolean(item.children?.length);
                 const childIsActive = Boolean(
-                  item.children?.some((child) => isRouteActive(pathname, child.href)),
+                  item.children?.some(childTreeIsActive),
                 );
                 const isOpen =
                   openMenus[item.label] ??
@@ -144,24 +217,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
 
                       {!collapsed && isOpen && (
                         <div className="ml-6 space-y-1 border-l border-sidebar-border pl-2">
-                          {item.children?.map((child) => {
-                            const childActive = isRouteActive(pathname, child.href);
-                            const badgeValue = purchaseBadgeValue(child.href);
-                            return (
-                              <Link
-                                key={child.href}
-                                href={child.href}
-                                className={cn(
-                                  "flex items-center justify-between rounded-lg px-3 py-2 text-sm transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                                  childActive &&
-                                    "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary hover:text-sidebar-primary-foreground",
-                                )}
-                              >
-                                <span className="truncate">{child.label}</span>
-                                <MiniBadge value={badgeValue} />
-                              </Link>
-                            );
-                          })}
+                          {item.children?.map((child) => renderChild(child))}
                         </div>
                       )}
                     </div>

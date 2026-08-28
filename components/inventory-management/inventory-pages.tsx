@@ -1,10 +1,15 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   AlertTriangle,
   BarChart3,
+  Clock3,
+  PackageX,
+  Truck,
+  ClipboardCheck,
   Boxes,
   ClipboardList,
   CookingPot,
@@ -103,6 +108,9 @@ import type {
   RecipeIngredient,
 } from "@/types/inventory-management";
 import { printBusinessDocument } from "@/lib/print-documents";
+import api, { unwrap } from "@/lib/api";
+import { inventoryService } from "@/services/inventory-management/inventory.service";
+import { procurementService } from "@/services/inventory-management/procurement.service";
 
 type Scope = "admin" | "food-controller" | "stock-keeper";
 
@@ -222,11 +230,48 @@ function PageHeader({
 }
 
 export function InventoryOverviewPage() {
-  const items = useInventoryItemsQuery({ per_page: 5 });
+  const isGeneralAdmin = normalizeRole(getStoredRoles()[0]) === "general-admin";
+  const items = useInventoryItemsQuery({ per_page: isGeneralAdmin ? 100 : 5 });
   const movements = useInventoryTransactionsQuery({ per_page: 5 });
   const lowStock = useLowStockQuery();
   const valuation = useStockValuationQuery();
   const summary = useStockStatusSummaryQuery();
+
+  const purchaseOrders = useQuery({
+    queryKey: ["general-admin", "inventory-overview", "purchase-orders"],
+    queryFn: () => procurementService.purchaseOrders({ per_page: 100 }, "admin"),
+    enabled: isGeneralAdmin,
+    staleTime: 30_000,
+  });
+
+  const receivings = useQuery({
+    queryKey: ["general-admin", "inventory-overview", "stock-receivings"],
+    queryFn: () => procurementService.stockReceivings({ per_page: 100 }, "admin"),
+    enabled: isGeneralAdmin,
+    staleTime: 30_000,
+  });
+
+  const consumptionTransactions = useQuery({
+    queryKey: ["general-admin", "inventory-overview", "consumption-transactions"],
+    queryFn: () => inventoryService.transactions({ per_page: 100, reference_type: "department_stockout" }, "admin"),
+    enabled: isGeneralAdmin,
+    staleTime: 30_000,
+  });
+
+  const adjustmentTransactions = useQuery({
+    queryKey: ["general-admin", "inventory-overview", "adjustments"],
+    queryFn: () => inventoryService.transactions({ per_page: 100, type: "adjust" }, "admin"),
+    enabled: isGeneralAdmin,
+    staleTime: 30_000,
+  });
+
+  const managementDashboard = useQuery({
+    queryKey: ["general-admin", "inventory-overview", "sales-today"],
+    queryFn: async () => unwrap<any>(await api.get("/admin/general/dashboard", { params: { days: 7 } })),
+    enabled: isGeneralAdmin,
+    staleTime: 30_000,
+  });
+
   const rows = items.data?.data ?? [];
   const valuationRows = valuation.data?.rows ?? [];
   const totalValue =
@@ -236,62 +281,205 @@ export function InventoryOverviewPage() {
       0,
     );
 
+  if (!isGeneralAdmin) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Inventory Overview"
+          description="Manager view for stock status, low-stock risk, latest movements and valuation."
+          icon={Warehouse}
+        />
+        <div className="grid gap-4 md:grid-cols-4">
+          <MetricCard title="Items" value={items.data?.meta.total ?? rows.length} icon={Package} />
+          <MetricCard title="Low stock" value={lowStock.data?.length ?? 0} icon={AlertTriangle} />
+          <MetricCard title="Stock value" value={`${formatMoney(totalValue)} ETB`} icon={BarChart3} />
+          <MetricCard title="Summary" value={Object.keys(summary.data ?? {}).length || "Ready"} icon={Boxes} />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Current stock</CardTitle>
+              <CardDescription>Latest inventory items using base units.</CardDescription>
+            </CardHeader>
+            <CardContent><InventoryItemsTable rows={rows.slice(0, 5)} loading={items.isLoading} /></CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent movements</CardTitle>
+              <CardDescription>Every stock change is recorded as an inventory transaction.</CardDescription>
+            </CardHeader>
+            <CardContent><TransactionsTable rows={movements.data?.data ?? []} loading={movements.isLoading} /></CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const purchaseRows = purchaseOrders.data?.data ?? [];
+  const receivingRows = receivings.data?.data ?? [];
+  const consumptionRows = consumptionTransactions.data?.data ?? [];
+  const adjustmentRows = adjustmentTransactions.data?.data ?? [];
+  const outOfStockCount = rows.filter((item) => Number(item.current_stock ?? 0) <= 0).length;
+  const lowStockCount = lowStock.data?.length ?? rows.filter((item) => Number(item.current_stock ?? 0) > 0 && Number(item.current_stock ?? 0) <= Number(item.minimum_quantity ?? 0)).length;
+
+  const overdueOrders = purchaseRows.filter((po) => {
+    if (!po.expected_date || ["completed", "cancelled"].includes(po.status)) return false;
+    return new Date(`${po.expected_date}T23:59:59`).getTime() < now.getTime();
+  });
+  const pendingGrn = receivingRows.filter((receiving: any) => !["approved", "posted", "completed"].includes(String(receiving.status ?? "").toLowerCase()));
+  const staleApprovals = purchaseRows.filter((po) => {
+    if (!["submitted", "food_validated"].includes(po.status) || !po.created_at) return false;
+    return now.getTime() - new Date(po.created_at).getTime() > 48 * 60 * 60 * 1000;
+  });
+  const delayedSuppliers = new Set(overdueOrders.map((po) => po.supplier?.id ?? po.supplier_id)).size;
+  const unusualAdjustments = adjustmentRows.filter((tx) => {
+    const minimum = Number(tx.inventory_item?.minimum_quantity ?? tx.inventoryItem?.minimum_quantity ?? 0);
+    return Number(tx.quantity ?? 0) >= Math.max(1, minimum * 0.5);
+  });
+
+  const todayConsumption = consumptionRows.filter((tx) => String(tx.created_at ?? "").slice(0, 10) === todayKey);
+  const consumptionByItem = new Map<number | string, { name: string; unit: BaseUnit; quantity: number; cost: number; beverage: boolean }>();
+  let beverageCost = 0;
+  let totalConsumption = 0;
+
+  todayConsumption.forEach((tx) => {
+    const item = tx.inventory_item ?? tx.inventoryItem;
+    const quantity = Math.abs(Number(tx.quantity ?? 0));
+    const unitCost = Number(tx.unit_cost ?? item?.average_purchase_price ?? 0);
+    const cost = quantity * unitCost;
+    const departmentName = String(tx.department?.name ?? "").toLowerCase();
+    const itemText = String(item?.name ?? "").toLowerCase();
+    const beverage = departmentName.includes("bar") || departmentName.includes("beverage") || /(beer|wine|whisky|whiskey|vodka|gin|soft drink|juice|water|coca|pepsi|sprite|fanta|coffee|tea)/.test(itemText);
+    totalConsumption += cost;
+    if (beverage) beverageCost += cost;
+    const key = item?.id ?? tx.inventory_item_id;
+    const current = consumptionByItem.get(key) ?? { name: item?.name ?? `Item #${key}`, unit: itemUnit(item), quantity: 0, cost: 0, beverage };
+    current.quantity += quantity;
+    current.cost += cost;
+    current.beverage = current.beverage || beverage;
+    consumptionByItem.set(key, current);
+  });
+
+  const foodCost = Math.max(0, totalConsumption - beverageCost);
+  const salesToday = Number(managementDashboard.data?.data?.kpis?.today_sales ?? 0);
+  const foodCostPercent = salesToday > 0 ? (totalConsumption / salesToday) * 100 : 0;
+  const highestConsumption = Array.from(consumptionByItem.values()).sort((a, b) => b.cost - a.cost).slice(0, 5);
+
+  const attentionItems = [
+    { label: "items out of stock", value: outOfStockCount, icon: PackageX, href: "/dashboard/inventory/low-stock" },
+    { label: "items below minimum stock", value: lowStockCount, icon: AlertTriangle, href: "/dashboard/inventory/low-stock" },
+    { label: "PO deliveries overdue", value: overdueOrders.length, icon: Clock3, href: "/dashboard/purchases/requests" },
+    { label: "GRNs awaiting inspection", value: pendingGrn.length, icon: ClipboardCheck, href: "/dashboard/purchases/receiving" },
+    { label: "unusual stock adjustments", value: unusualAdjustments.length, icon: SlidersHorizontal, href: "/dashboard/inventory/adjustments" },
+    { label: "suppliers with delayed deliveries", value: delayedSuppliers, icon: Truck, href: "/dashboard/purchases/suppliers" },
+    { label: "PRs waiting over 48 hours for approval", value: staleApprovals.length, icon: ClipboardList, href: "/dashboard/purchases/requests" },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Inventory Overview"
-        description="Manager view for stock status, low-stock risk, latest movements and valuation."
+        description="General Admin view of inventory value, stock risk, procurement exceptions and restaurant consumption."
         icon={Warehouse}
       />
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard
-          title="Items"
-          value={items.data?.meta.total ?? rows.length}
-          icon={Package}
-        />
-        <MetricCard
-          title="Low stock"
-          value={lowStock.data?.length ?? 0}
-          icon={AlertTriangle}
-        />
-        <MetricCard
-          title="Stock value"
-          value={`${formatMoney(totalValue)} ETB`}
-          icon={BarChart3}
-        />
-        <MetricCard
-          title="Summary"
-          value={Object.keys(summary.data ?? {}).length || "Ready"}
-          icon={Boxes}
-        />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="Stock value" value={`${formatMoney(totalValue)} ETB`} icon={BarChart3} />
+        <MetricCard title="Stock items" value={items.data?.meta.total ?? rows.length} icon={Package} />
+        <MetricCard title="Low stock" value={lowStockCount} icon={AlertTriangle} />
+        <MetricCard title="Out of stock" value={outOfStockCount} icon={PackageX} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+
+      <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Current stock</CardTitle>
-            <CardDescription>
-              Latest inventory items using base units.
-            </CardDescription>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Current stock</CardTitle>
+                <CardDescription>Latest inventory balances and stock status.</CardDescription>
+              </div>
+              <Button asChild variant="outline" size="sm"><Link href="/dashboard/inventory/stock-balance">View all</Link></Button>
+            </div>
           </CardHeader>
-          <CardContent>
-            <InventoryItemsTable rows={rows} loading={items.isLoading} />
-          </CardContent>
+          <CardContent><InventoryItemsTable rows={rows.slice(0, 5)} loading={items.isLoading} /></CardContent>
         </Card>
+
         <Card>
           <CardHeader>
-            <CardTitle>Recent movements</CardTitle>
-            <CardDescription>
-              Every stock change is recorded as an inventory transaction.
-            </CardDescription>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <CardTitle>Recent stock movements</CardTitle>
+                <CardDescription>Latest receipts, issues, returns and adjustments.</CardDescription>
+              </div>
+              <Button asChild variant="outline" size="sm"><Link href="/dashboard/inventory/movements">View movements</Link></Button>
+            </div>
           </CardHeader>
-          <CardContent>
-            <TransactionsTable
-              rows={movements.data?.data ?? []}
-              loading={movements.isLoading}
-            />
-          </CardContent>
+          <CardContent><TransactionsTable rows={movements.data?.data ?? []} loading={movements.isLoading} /></CardContent>
         </Card>
       </div>
+
+      <Card className="border-destructive/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-destructive" /> Requires Attention</CardTitle>
+          <CardDescription>Operational exceptions that need General Admin review rather than another passive chart.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {attentionItems.map(({ label, value, icon: Icon, href }) => (
+              <Link key={label} href={href} className="group flex items-center justify-between rounded-xl border p-4 transition-colors hover:bg-muted/50">
+                <div className="flex items-center gap-3">
+                  <div className={`rounded-lg p-2 ${value > 0 ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}><Icon className="h-4 w-4" /></div>
+                  <div><p className="font-semibold">{value}</p><p className="text-sm text-muted-foreground">{label}</p></div>
+                </div>
+                <span className="text-xs text-muted-foreground transition-transform group-hover:translate-x-0.5">View →</span>
+              </Link>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Inventory Consumption Intelligence</CardTitle>
+          <CardDescription>Today&apos;s restaurant consumption cost compared with sales, plus the highest-cost consumed items.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <MetricCard title="Food Cost Today" value={`${formatMoney(foodCost)} ETB`} icon={CookingPot} />
+            <MetricCard title="Beverage Cost" value={`${formatMoney(beverageCost)} ETB`} icon={BarChart3} />
+            <MetricCard title="Total Consumption" value={`${formatMoney(totalConsumption)} ETB`} icon={Boxes} />
+            <MetricCard title="Sales" value={`${formatMoney(salesToday)} ETB`} icon={BarChart3} />
+            <MetricCard title="Consumption Cost" value={`${formatMoney(totalConsumption)} ETB`} icon={Package} />
+            <MetricCard title="Food Cost %" value={`${foodCostPercent.toFixed(1)}%`} icon={AlertTriangle} />
+          </div>
+
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <div><h3 className="font-semibold">Highest Consumption</h3><p className="text-sm text-muted-foreground">Ranked by consumption cost today.</p></div>
+            </div>
+            {highestConsumption.length ? (
+              <div className="overflow-x-auto rounded-xl border">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Quantity</TableHead><TableHead className="text-right">Cost</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {highestConsumption.map((item) => (
+                      <TableRow key={item.name}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{formatBaseQuantity(item.quantity, item.unit)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatMoney(item.cost)} ETB</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <EmptyState title="No consumption recorded today" description="Consumption intelligence will populate automatically from department stock-out transactions." />
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

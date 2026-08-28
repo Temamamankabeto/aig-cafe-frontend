@@ -77,9 +77,17 @@ export default function DashboardHeader({
     };
   }, [isWaiter, pathname]);
 
-  async function logout() {
-    await authService.logout();
+  function logout() {
+    // Clear local authentication synchronously and leave the protected area
+    // immediately. Server-side token revocation continues in the background.
+    authService.logout();
     toast.success("Logged out successfully");
+
+    if (typeof window !== "undefined") {
+      window.location.replace("/login");
+      return;
+    }
+
     router.replace("/login");
   }
 
