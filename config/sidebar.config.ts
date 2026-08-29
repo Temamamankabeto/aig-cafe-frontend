@@ -3,6 +3,7 @@ import {
   ChefHat,
   ClipboardList,
   CreditCard,
+  FileClock,
   LayoutDashboard,
   Settings,
   ShieldCheck,
@@ -87,11 +88,14 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     group("Operations & Reports", BarChart3, [
       { label: "Orders", href: `${orderBase}/orders`, permission: "orders.read" },
       { label: "Inventory", href: "/dashboard/inventory/overview", permission: "inventory.read" },
-      { label: "Purchase Approval", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
-      { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
-      { label: "Catering Packages", href: `${orderBase}/packages` },
-      ...salesReportChildren,
+      { label: "Finance & Reports", href: "/dashboard/modules/finance" },
     ]),
+    {
+      label: "Audit Log",
+      href: "/dashboard/audit-logs",
+      icon: FileClock,
+      permission: "audit.read",
+    },
   ]),
 
   "cafeteria-manager": roleSidebar("cafeteria-manager", Store, [
