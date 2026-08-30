@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ShoppingCart } from "lucide-react";
 import api from "@/lib/api";
+import { authService } from "@/services/auth/auth.service";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -344,9 +345,13 @@ export function RoleAwareCreateOrderPage() {
   const [isCashier, setIsCashier] = useState(false);
 
   useEffect(() => {
-    const rawUser = localStorage.getItem("user") || localStorage.getItem("auth_user") || localStorage.getItem("authUser");
-    const text = rawUser ? rawUser.toLowerCase() : "";
-    setIsCashier(text.includes("cashier"));
+    const user = authService.getStoredUser();
+    const roles = authService.getStoredRoles();
+    const values = [...roles, user?.role, ...(user?.roles ?? [])]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase());
+
+    setIsCashier(values.includes("cashier"));
   }, []);
 
   if (isCashier) return <CashierCreditCreateOrderPage />;

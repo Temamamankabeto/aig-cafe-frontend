@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { authService } from "@/services/auth/auth.service";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { MoreHorizontal, Plus, Printer, Search, ShoppingCart } from "lucide-react";
@@ -2601,17 +2602,16 @@ export function CreditOrdersPage() {
   const rows = query.data?.data ?? [];
 
   useEffect(() => {
-    try {
-      const storedRoles = JSON.parse(localStorage.getItem("roles") || "[]");
-      const user = JSON.parse(localStorage.getItem("user") || "null");
-      const names = [...storedRoles, user?.role, ...(user?.roles ?? [])]
-        .map((value: any) => String(typeof value === "object" ? value?.name ?? "" : value ?? "").trim().toLowerCase());
-      if (names.includes("general admin")) setRole("admin");
-      else if (names.some((name: string) => ["cafeteria manager", "manager"].includes(name))) setRole("manager");
-      else if (names.some((name: string) => ["finance", "finance manager"].includes(name))) setRole("finance");
-    } catch {
-      setRole("other");
-    }
+    const user = authService.getStoredUser();
+    const storedRoles = authService.getStoredRoles();
+    const names = [...storedRoles, user?.role, ...(user?.roles ?? [])]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase());
+
+    if (names.includes("general admin")) setRole("admin");
+    else if (names.some((name) => ["cafeteria manager", "manager"].includes(name))) setRole("manager");
+    else if (names.some((name) => ["finance", "finance manager"].includes(name))) setRole("finance");
+    else setRole("other");
   }, []);
 
   function updateFilter(patch: Partial<typeof filters>) {
@@ -2883,24 +2883,23 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
 function useOrderScopeForRole(): Scope {
   const [scope, setScope] = useState<Scope>("admin");
   useEffect(() => {
-    try {
-      const roles = JSON.parse(localStorage.getItem("roles") || "[]").map((role: string | { name?: string }) =>
-        String(typeof role === "object" ? role?.name ?? "" : role).trim().toLowerCase(),
-      );
-      const user = JSON.parse(localStorage.getItem("user") || "null");
-      const normalizedRoles = [...roles, String(user?.role ?? "").trim().toLowerCase()];
-      if (normalizedRoles.some((role) => ["f&b controller", "food controller", "fb-controller"].includes(role))) {
-        setScope("food-controller");
-      } else if (normalizedRoles.some((role) => ["cafeteria manager", "manager"].includes(role))) {
-        setScope("manager");
-      } else if (normalizedRoles.includes("waiter")) {
-        setScope("waiter");
-      } else if (normalizedRoles.includes("cashier")) {
-        setScope("cashier");
-      } else {
-        setScope("admin");
-      }
-    } catch {
+    const user = authService.getStoredUser();
+    const roles = authService.getStoredRoles().map((role) => role.trim().toLowerCase());
+    const normalizedRoles = [
+      ...roles,
+      String(user?.role ?? "").trim().toLowerCase(),
+      ...(user?.roles ?? []).map((role) => String(role).trim().toLowerCase()),
+    ];
+
+    if (normalizedRoles.some((role) => ["f&b controller", "food controller", "fb-controller"].includes(role))) {
+      setScope("food-controller");
+    } else if (normalizedRoles.some((role) => ["cafeteria manager", "manager"].includes(role))) {
+      setScope("manager");
+    } else if (normalizedRoles.includes("waiter")) {
+      setScope("waiter");
+    } else if (normalizedRoles.includes("cashier")) {
+      setScope("cashier");
+    } else {
       setScope("admin");
     }
   }, []);

@@ -14,12 +14,19 @@ export type AuthUser = {
 };
 
 type LoginResponse = {
-  token?: string;
-  access_token?: string;
   user?: AuthUser;
   roles?: string[];
   permissions?: string[];
   data?: LoginResponse;
+  message?: string;
+};
+
+type MeResponse = {
+  success?: boolean;
+  data?: AuthUser;
+  user?: AuthUser;
+  roles?: string[];
+  permissions?: string[];
 };
 
 const CANONICAL_ROLES = [
@@ -45,6 +52,10 @@ const ROLE_ALIASES: Record<string, (typeof CANONICAL_ROLES)[number]> = {
   "food controller": "F&B Controller",
 };
 
+let sessionUser: AuthUser | null = null;
+let sessionRoles: string[] = [];
+let sessionPermissions: string[] = [];
+
 function normalizeRoleValue(value: string) {
   return value.trim().toLowerCase().replace(/&/g, "and").replace(/[_-]+/g, " ").replace(/\s+/g, " ");
 }
@@ -65,22 +76,27 @@ function normalizeLoginResponse(response: unknown): LoginResponse {
   return "data" in value && value.data ? value.data : (value as LoginResponse);
 }
 
-function setCookie(name: string, value: unknown, maxAgeSeconds = 60 * 60 * 24 * 7) {
-  if (typeof document === "undefined") return;
-  const encoded = encodeURIComponent(typeof value === "string" ? value : JSON.stringify(value));
-  document.cookie = `${name}=${encoded}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
+function purgeLegacyClientAuthStorage() {
+  if (typeof window === "undefined") return;
+  clearSession();
 }
 
-function deleteCookie(name: string) {
-  if (typeof document === "undefined") return;
-  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
-}
+function cacheSession(response: {
+  user?: AuthUser | null;
+  roles?: string[];
+  permissions?: string[];
+}) {
+  const user = response.user ?? null;
+  const roles = canonicalRoles(
+    response.roles ??
+      user?.roles ??
+      (user?.role ? [user.role] : []),
+  );
+  const permissions = response.permissions ?? user?.permissions ?? [];
 
-function clearAuthCookies() {
-  deleteCookie("token");
-  deleteCookie("roles");
-  deleteCookie("permissions");
-  deleteCookie("user");
+  sessionUser = user;
+  sessionRoles = roles;
+  sessionPermissions = [...new Set(permissions.map(String))];
 }
 
 export const authService = {
@@ -111,57 +127,78 @@ export const authService = {
 
   async me() {
     const response = await api.get("/auth/me");
-    return unwrap<AuthUser>(response);
+    const body = unwrap<MeResponse>(response);
+    const user = body.data ?? body.user ?? null;
+
+    if (!user) {
+      throw new Error("Authenticated user data is missing.");
+    }
+
+    const normalized: MeResponse = {
+      ...body,
+      user,
+      data: user,
+      roles: body.roles ?? user.roles ?? (user.role ? [user.role] : []),
+      permissions: body.permissions ?? user.permissions ?? [],
+    };
+
+    cacheSession({
+      user: normalized.user,
+      roles: normalized.roles,
+      permissions: normalized.permissions,
+    });
+    return user;
+  },
+
+  async hydrateSession() {
+    purgeLegacyClientAuthStorage();
+    const response = await api.get("/auth/me");
+    const body = unwrap<MeResponse>(response);
+    const user = body.data ?? body.user ?? null;
+
+    if (!user) {
+      throw new Error("Authenticated user data is missing.");
+    }
+
+    cacheSession({
+      user,
+      roles: body.roles ?? user.roles ?? (user.role ? [user.role] : []),
+      permissions: body.permissions ?? user.permissions ?? [],
+    });
+
+    return user;
   },
 
   async logout() {
     try {
       await api.post("/auth/logout");
     } finally {
-      clearSession();
-      clearAuthCookies();
+      sessionUser = null;
+      sessionRoles = [];
+      sessionPermissions = [];
+      purgeLegacyClientAuthStorage();
     }
   },
 
   saveSession(response: LoginResponse) {
-    if (typeof window === "undefined") return;
-    const token = response.token ?? response.access_token ?? response.data?.token ?? response.data?.access_token;
-    const user = response.user ?? response.data?.user ?? null;
-    const roles = canonicalRoles(response.roles ?? response.data?.roles ?? user?.roles ?? (user?.role ? [user.role] : []));
-    const permissions = response.permissions ?? response.data?.permissions ?? user?.permissions ?? [];
-
-    if (token) {
-      localStorage.setItem("token", token);
-      setCookie("token", token);
-    }
-    if (user) {
-      localStorage.setItem("user", JSON.stringify(user));
-      setCookie("user", user);
-    }
-
-    localStorage.setItem("roles", JSON.stringify(roles));
-    localStorage.setItem("permissions", JSON.stringify(permissions));
-    setCookie("roles", roles);
-    setCookie("permissions", permissions);
+    const normalized = normalizeLoginResponse(response);
+    cacheSession({
+      user: normalized.user ?? null,
+      roles: normalized.roles,
+      permissions: normalized.permissions,
+    });
+    purgeLegacyClientAuthStorage();
   },
 
   getStoredUser(): AuthUser | null {
-    if (typeof window === "undefined") return null;
-    try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
+    return sessionUser;
   },
 
   getStoredRoles(): string[] {
-    if (typeof window === "undefined") return [];
-    try {
-      const roles = JSON.parse(localStorage.getItem("roles") || "[]");
-      return Array.isArray(roles) ? canonicalRoles(roles.map(String)) : [];
-    } catch {
-      return [];
-    }
+    return [...sessionRoles];
   },
 
   getStoredPermissions(): string[] {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem("permissions") || "[]"); } catch { return []; }
+    return [...sessionPermissions];
   },
 };

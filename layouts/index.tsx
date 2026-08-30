@@ -6,6 +6,7 @@ import DashboardHeader from "@/layouts/components/DashboardHeader";
 import Sidebar from "@/layouts/components/Sidebar";
 import SessionInactivityGuard from "@/components/auth/session-inactivity-guard";
 import { cn } from "@/lib/utils";
+import { authService } from "@/services/auth/auth.service";
 
 export default function DashboardLayoutShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -26,12 +27,20 @@ export default function DashboardLayoutShell({ children }: { children: React.Rea
   };
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    setReady(true);
+    let cancelled = false;
+
+    authService
+      .hydrateSession()
+      .then(() => {
+        if (!cancelled) setReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) router.replace("/login");
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   if (!ready) return null;

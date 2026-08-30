@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { clearSession, expireServerSession, getToken } from "@/lib/api";
+import { clearSession, expireServerSession } from "@/lib/api";
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const LAST_ACTIVITY_KEY = "auth_last_activity_at";
@@ -19,8 +19,6 @@ export default function SessionInactivityGuard() {
   const lastWriteRef = useRef(0);
 
   useEffect(() => {
-    if (!getToken()) return;
-
     const expireSession = () => {
       void expireServerSession().catch(() => undefined);
       clearSession();
@@ -60,11 +58,7 @@ export default function SessionInactivityGuard() {
     ACTIVITY_EVENTS.forEach((eventName) => window.addEventListener(eventName, recordActivity, { passive: true }));
 
     const onStorage = (event: StorageEvent) => {
-      if (event.key === LAST_ACTIVITY_KEY || event.key === "token") {
-        if (!getToken()) {
-          expireSession();
-          return;
-        }
+      if (event.key === LAST_ACTIVITY_KEY) {
         scheduleExpiration();
       }
     };
