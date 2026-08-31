@@ -11,6 +11,7 @@ export type AuthUser = {
   roles?: string[];
   permissions?: string[];
   department_id?: number | string | null;
+  email_verified?: boolean;
 };
 
 type LoginResponse = {
@@ -19,6 +20,16 @@ type LoginResponse = {
   permissions?: string[];
   data?: LoginResponse;
   message?: string;
+};
+
+export type RegistrationResponse = {
+  success?: boolean;
+  message?: string;
+  data?: {
+    email?: string;
+    verification_required?: boolean;
+    verification_email_sent?: boolean;
+  };
 };
 
 type MeResponse = {
@@ -107,7 +118,12 @@ export const authService = {
 
   async registerCustomer(payload: CustomerRegisterPayload) {
     const response = await api.post("/auth/register", payload);
-    return normalizeLoginResponse(unwrap<LoginResponse>(response));
+    return unwrap<RegistrationResponse>(response);
+  },
+
+  async resendVerification(email: string) {
+    const response = await api.post("/auth/email/verification-notification", { email });
+    return unwrap<{ success: boolean; message: string }>(response);
   },
 
   async forgotPassword(email: string) {

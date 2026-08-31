@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Loader2, UserPlus } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Loader2, Mail, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -27,12 +26,13 @@ type RegisterForm = typeof initialForm;
 type FieldErrors = Partial<Record<keyof RegisterForm, string>>;
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [form, setForm] = useState<RegisterForm>(initialForm);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
 
   function updateField(name: keyof RegisterForm, value: string) {
     setForm((current) => ({ ...current, [name]: value }));
@@ -65,15 +65,30 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const response = await authService.registerCustomer(parsed.data);
-      authService.saveSession(response);
+      const email = response.data?.email ?? parsed.data.email;
+      setRegisteredEmail(email);
+      setForm(initialForm);
 
-      toast.success("Customer account created successfully");
-      router.replace("/dashboard/customer");
-      router.refresh();
+      toast.success(response.message ?? "Account created. Check your email to verify your account.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Registration failed. Please try again.");
     } finally {
       setLoading(false);
+    }
+  }
+
+
+  async function resendVerification() {
+    if (!registeredEmail) return;
+
+    setResending(true);
+    try {
+      const response = await authService.resendVerification(registeredEmail);
+      toast.success(response.message ?? "Verification email requested.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to resend verification email.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -88,6 +103,30 @@ export default function RegisterPage() {
         </CardHeader>
 
         <CardContent>
+          {registeredEmail ? (
+            <div className="space-y-5 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
+                <CheckCircle2 className="h-7 w-7" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-lg font-semibold">Verify your email</h2>
+                <p className="text-sm text-muted-foreground">
+                  We sent a verification link to <span className="font-medium text-foreground">{registeredEmail}</span>.
+                  Open that email and verify your account before signing in.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button type="button" variant="outline" onClick={resendVerification} disabled={resending}>
+                  {resending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                  {resending ? "Sending..." : "Resend email"}
+                </Button>
+                <Button asChild>
+                  <Link href="/login">Go to sign in</Link>
+                </Button>
+              </div>
+            </div>
+          ) : (
+          <div>
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="name">Full name</Label>
@@ -208,6 +247,8 @@ export default function RegisterPage() {
               Sign in
             </Link>
           </p>
+          </div>
+          )}
         </CardContent>
       </Card>
     </main>

@@ -149,12 +149,21 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <a
-          href="/forgot-password"
-          className="mt-5 text-sm text-[#cda869] transition-colors hover:text-[#e0bd7c] hover:underline underline-offset-4"
-        >
-          Forgot Password?
-        </a>
+        <div className="mt-5 flex items-center gap-4 text-sm">
+          <a
+            href="/forgot-password"
+            className="text-[#cda869] transition-colors hover:text-[#e0bd7c] hover:underline underline-offset-4"
+          >
+            Forgot Password?
+          </a>
+          <span className="text-white/30">•</span>
+          <a
+            href="/register"
+            className="text-[#cda869] transition-colors hover:text-[#e0bd7c] hover:underline underline-offset-4"
+          >
+            Create customer account
+          </a>
+        </div>
       </div>
     </main>
   );
