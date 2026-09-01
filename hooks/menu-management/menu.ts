@@ -43,12 +43,12 @@ export function useMenuItemsQuery(
    CATEGORY MUTATIONS
 ========================= */
 
-export function useCreateMenuCategoryMutation(done?: () => void) {
+export function useCreateMenuCategoryMutation(done?: () => void, scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (payload: MenuCategoryPayload) =>
-      menuService.createCategory(payload),
+      menuService.createCategory(payload, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -61,7 +61,7 @@ export function useCreateMenuCategoryMutation(done?: () => void) {
   });
 }
 
-export function useUpdateMenuCategoryMutation(done?: () => void) {
+export function useUpdateMenuCategoryMutation(done?: () => void, scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -71,7 +71,7 @@ export function useUpdateMenuCategoryMutation(done?: () => void) {
     }: {
       id: string | number;
       payload: MenuCategoryPayload;
-    }) => menuService.updateCategory(id, payload),
+    }) => menuService.updateCategory(id, payload, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -84,12 +84,12 @@ export function useUpdateMenuCategoryMutation(done?: () => void) {
   });
 }
 
-export function useToggleMenuCategoryMutation() {
+export function useToggleMenuCategoryMutation(scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id: string | number) =>
-      menuService.toggleCategory(id),
+      menuService.toggleCategory(id, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -101,12 +101,12 @@ export function useToggleMenuCategoryMutation() {
   });
 }
 
-export function useDeleteMenuCategoryMutation() {
+export function useDeleteMenuCategoryMutation(scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id: string | number) =>
-      menuService.deleteCategory(id),
+      menuService.deleteCategory(id, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -122,12 +122,12 @@ export function useDeleteMenuCategoryMutation() {
    ITEM MUTATIONS
 ========================= */
 
-export function useCreateMenuItemMutation(done?: () => void) {
+export function useCreateMenuItemMutation(done?: () => void, scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (payload: MenuItemPayload) =>
-      menuService.createItem(payload),
+      menuService.createItem(payload, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -140,7 +140,7 @@ export function useCreateMenuItemMutation(done?: () => void) {
   });
 }
 
-export function useUpdateMenuItemMutation(done?: () => void) {
+export function useUpdateMenuItemMutation(done?: () => void, scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -150,7 +150,7 @@ export function useUpdateMenuItemMutation(done?: () => void) {
     }: {
       id: string | number;
       payload: MenuItemPayload;
-    }) => menuService.updateItem(id, payload),
+    }) => menuService.updateItem(id, payload, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -163,12 +163,12 @@ export function useUpdateMenuItemMutation(done?: () => void) {
   });
 }
 
-export function useToggleMenuItemMutation() {
+export function useToggleMenuItemMutation(scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id: string | number) =>
-      menuService.toggleItem(id),
+      menuService.toggleItem(id, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -180,7 +180,7 @@ export function useToggleMenuItemMutation() {
   });
 }
 
-export function useMenuItemAvailabilityMutation() {
+export function useMenuItemAvailabilityMutation(scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -190,7 +190,7 @@ export function useMenuItemAvailabilityMutation() {
     }: {
       id: string | number;
       isAvailable: boolean;
-    }) => menuService.availability(id, isAvailable),
+    }) => menuService.availability(id, isAvailable, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -202,7 +202,7 @@ export function useMenuItemAvailabilityMutation() {
   });
 }
 
-export function useSetMenuItemModeMutation() {
+export function useSetMenuItemModeMutation(scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -214,8 +214,8 @@ export function useSetMenuItemModeMutation() {
       mode: MenuMode;
     }) =>
       mode === "spatial"
-        ? menuService.spatial(id)
-        : menuService.normal(id),
+        ? menuService.spatial(id, scope)
+        : menuService.normal(id, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -227,12 +227,12 @@ export function useSetMenuItemModeMutation() {
   });
 }
 
-export function useDeleteMenuItemMutation() {
+export function useDeleteMenuItemMutation(scope: MenuRoleScope = DEFAULT_SCOPE) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id: string | number) =>
-      menuService.deleteItem(id),
+      menuService.deleteItem(id, scope),
 
     onSuccess: () => {
       queryClient.invalidateQueries({

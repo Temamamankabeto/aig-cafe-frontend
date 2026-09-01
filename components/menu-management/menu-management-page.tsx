@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { can, menuPermissions } from "@/lib/auth/permissions";
+import { can, getStoredRoles, menuPermissions } from "@/lib/auth/permissions";
 import {
   useCreateMenuCategoryMutation,
   useCreateMenuItemMutation,
@@ -90,10 +90,12 @@ function CategoryDialog({
   open,
   onOpenChange,
   category,
+  scope,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   category: MenuCategory | null;
+  scope: MenuRoleScope;
 }) {
   const [payload, setPayload] = useState<MenuCategoryPayload>({
     name: category?.name ?? "",
@@ -102,8 +104,8 @@ function CategoryDialog({
     sort_order: Number(category?.sort_order ?? 0),
     is_active: category ? yes(category.is_active) : true,
   });
-  const create = useCreateMenuCategoryMutation(() => onOpenChange(false));
-  const update = useUpdateMenuCategoryMutation(() => onOpenChange(false));
+  const create = useCreateMenuCategoryMutation(() => onOpenChange(false), scope);
+  const update = useUpdateMenuCategoryMutation(() => onOpenChange(false), scope);
   const saving = create.isPending || update.isPending;
 
   function submit() {
@@ -164,11 +166,13 @@ function ItemDialog({
   onOpenChange,
   item,
   categories,
+  scope,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: MenuItem | null;
   categories: MenuCategory[];
+  scope: MenuRoleScope;
 }) {
   const [payload, setPayload] = useState<MenuItemPayload>({
     category_id: item?.category_id ?? item?.menu_category_id ?? categories[0]?.id ?? "",
@@ -181,8 +185,8 @@ function ItemDialog({
     menu_mode: item?.menu_mode ?? "normal",
     image: null,
   });
-  const create = useCreateMenuItemMutation(() => onOpenChange(false));
-  const update = useUpdateMenuItemMutation(() => onOpenChange(false));
+  const create = useCreateMenuItemMutation(() => onOpenChange(false), scope);
+  const update = useUpdateMenuItemMutation(() => onOpenChange(false), scope);
   const saving = create.isPending || update.isPending;
 
   function submit() {
@@ -337,7 +341,10 @@ export function MenuManagementPage({
   readOnly = false,
   scope = "admin" as MenuRoleScope,
 }: Props) {
-  const readonly = readOnly || scope === "waiter" || scope === "public";
+  const roles = getStoredRoles();
+  const isFoodController = roles.some((role) => role.trim().toLowerCase() === "f&b controller");
+  const effectiveScope: MenuRoleScope = scope === "admin" && isFoodController ? "food-controller" : scope;
+  const readonly = readOnly || effectiveScope === "waiter" || effectiveScope === "public";
   const [itemParams, setItemParams] = useState<MenuItemParams>({
     page: 1,
     per_page: 10,
@@ -354,14 +361,14 @@ export function MenuManagementPage({
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
   const [detailItem, setDetailItem] = useState<MenuItem | null>(null);
 
-  const categoriesQuery = useMenuCategoriesQuery({ per_page: 100 }, scope);
-  const itemsQuery = useMenuItemsQuery(itemParams, scope);
-  const toggleCategory = useToggleMenuCategoryMutation();
-  const deleteCategory = useDeleteMenuCategoryMutation();
-  const toggleItem = useToggleMenuItemMutation();
-  const availability = useMenuItemAvailabilityMutation();
-  const mode = useSetMenuItemModeMutation();
-  const deleteItem = useDeleteMenuItemMutation();
+  const categoriesQuery = useMenuCategoriesQuery({ per_page: 100 }, effectiveScope);
+  const itemsQuery = useMenuItemsQuery(itemParams, effectiveScope);
+  const toggleCategory = useToggleMenuCategoryMutation(effectiveScope);
+  const deleteCategory = useDeleteMenuCategoryMutation(effectiveScope);
+  const toggleItem = useToggleMenuItemMutation(effectiveScope);
+  const availability = useMenuItemAvailabilityMutation(effectiveScope);
+  const mode = useSetMenuItemModeMutation(effectiveScope);
+  const deleteItem = useDeleteMenuItemMutation(effectiveScope);
 
   const categories = categoriesQuery.data?.data ?? [];
   const items = itemsQuery.data?.data ?? [];
@@ -669,9 +676,9 @@ export function MenuManagementPage({
 
       {!readonly && (
         <>
-          <CategoryDialog key={selectedCategory?.id ?? "new-category"} open={categoryOpen} onOpenChange={handleCategoryDialogChange} category={selectedCategory} />
-          <ItemDialog key={selectedItem?.id ?? "new-item"} open={itemOpen} onOpenChange={handleItemDialogChange} item={selectedItem} categories={categories} />
-          <ItemDetailDialog key={detailItem?.id ?? "detail"} open={detailOpen} onOpenChange={handleDetailDialogChange} item={detailItem} categories={categories} />
+          <CategoryDialog key={selectedCategory?.id ?? "new-category"} open={categoryOpen} onOpenChange={handleCategoryDialogChange} category={selectedCategory} scope={effectiveScope} />
+          <ItemDialog key={selectedItem?.id ?? "new-item"} open={itemOpen} onOpenChange={handleItemDialogChange} item={selectedItem} categories={categories} scope={effectiveScope} />
+          <ItemDetailDialog key={detailItem?.id ?? "detail"} open={detailOpen} onOpenChange={handleDetailDialogChange} item={detailItem} categories={categories} scope={effectiveScope} />
         </>
       )}
     </div>

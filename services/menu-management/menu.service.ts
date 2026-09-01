@@ -122,66 +122,66 @@ export const menuService = {
     throw lastError instanceof Error ? lastError : new Error("Could not load menu items");
   },
 
-  async createCategory(payload: MenuCategoryPayload) {
-    const response = await api.post("/admin/menu/categories", payload);
+  async createCategory(payload: MenuCategoryPayload, scope: MenuRoleScope = "admin") {
+    const response = await api.post(`${prefix(scope)}/categories`, payload);
     return unwrap<ApiEnvelope<MenuCategory>>(response);
   },
 
-  async updateCategory(id: number | string, payload: MenuCategoryPayload) {
-    const response = await api.put(`/admin/menu/categories/${id}`, payload);
+  async updateCategory(id: number | string, payload: MenuCategoryPayload, scope: MenuRoleScope = "admin") {
+    const response = await api.put(`${prefix(scope)}/categories/${id}`, payload);
     return unwrap<ApiEnvelope<MenuCategory>>(response);
   },
 
-  async toggleCategory(id: number | string) {
-    const response = await api.patch(`/admin/menu/categories/${id}/toggle`);
+  async toggleCategory(id: number | string, scope: MenuRoleScope = "admin") {
+    const response = await api.patch(`${prefix(scope)}/categories/${id}/toggle`);
     return unwrap<ApiEnvelope<MenuCategory>>(response);
   },
 
-  async deleteCategory(id: number | string) {
-    const response = await api.delete(`/admin/menu/categories/${id}`);
+  async deleteCategory(id: number | string, scope: MenuRoleScope = "admin") {
+    const response = await api.delete(`${prefix(scope)}/categories/${id}`);
     return unwrap<ApiEnvelope<MenuCategory>>(response);
   },
 
-  async createItem(payload: MenuItemPayload) {
+  async createItem(payload: MenuItemPayload, scope: MenuRoleScope = "admin") {
     const hasImage = typeof File !== "undefined" && payload.image instanceof File;
     const response = hasImage
-      ? await api.post("/admin/menu/items", toFormData(payload), { headers: { "Content-Type": "multipart/form-data" } })
-      : await api.post("/admin/menu/items", payload);
+      ? await api.post(`${prefix(scope)}/items`, toFormData(payload), { headers: { "Content-Type": "multipart/form-data" } })
+      : await api.post(`${prefix(scope)}/items`, payload);
     return unwrap<ApiEnvelope<MenuItem>>(response);
   },
 
-  async updateItem(id: number | string, payload: MenuItemPayload) {
+  async updateItem(id: number | string, payload: MenuItemPayload, scope: MenuRoleScope = "admin") {
     const hasImage = typeof File !== "undefined" && payload.image instanceof File;
     const response = hasImage
-      ? await api.post(`/admin/menu/items/${id}?_method=PUT`, toFormData(payload), { headers: { "Content-Type": "multipart/form-data" } })
-      : await api.put(`/admin/menu/items/${id}`, payload);
+      ? await api.post(`${prefix(scope)}/items/${id}?_method=PUT`, toFormData(payload), { headers: { "Content-Type": "multipart/form-data" } })
+      : await api.put(`${prefix(scope)}/items/${id}`, payload);
     return unwrap<ApiEnvelope<MenuItem>>(response);
   },
 
-  async toggleItem(id: number | string) {
-    const response = await api.patch(`/admin/menu/items/${id}/toggle`);
+  async toggleItem(id: number | string, scope: MenuRoleScope = "admin") {
+    const response = await api.patch(`${prefix(scope)}/items/${id}/toggle`);
     return unwrap<ApiEnvelope<MenuItem>>(response);
   },
 
-  async availability(id: number | string, isAvailable: boolean) {
-    const response = await api.patch(`/admin/menu/items/${id}/availability`, {
+  async availability(id: number | string, isAvailable: boolean, scope: MenuRoleScope = "admin") {
+    const response = await api.patch(`${prefix(scope)}/items/${id}/availability`, {
       is_available: isAvailable,
     });
     return unwrap<ApiEnvelope<MenuItem>>(response);
   },
 
-  async spatial(id: number | string) {
-    const response = await api.patch(`/admin/menu/items/${id}/spatial`);
+  async spatial(id: number | string, scope: MenuRoleScope = "admin") {
+    const response = await api.patch(`${prefix(scope)}/items/${id}/spatial`);
     return unwrap<ApiEnvelope<MenuItem>>(response);
   },
 
-  async normal(id: number | string) {
-    const response = await api.patch(`/admin/menu/items/${id}/normal`);
+  async normal(id: number | string, scope: MenuRoleScope = "admin") {
+    const response = await api.patch(`${prefix(scope)}/items/${id}/normal`);
     return unwrap<ApiEnvelope<MenuItem>>(response);
   },
 
-  async deleteItem(id: number | string) {
-    const response = await api.delete(`/admin/menu/items/${id}`);
+  async deleteItem(id: number | string, scope: MenuRoleScope = "admin") {
+    const response = await api.delete(`${prefix(scope)}/items/${id}`);
     return unwrap<ApiEnvelope<MenuItem>>(response);
   },
 };
