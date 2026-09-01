@@ -130,6 +130,99 @@ type FinanceData = {
 
 type ApiResponse = { success: boolean; data?: FinanceData; message?: string };
 
+function extractNestedFinanceData(value: unknown): any {
+  let current: any = value;
+
+  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth += 1) {
+    if (current.kpis || current.summary) {
+      return current;
+    }
+
+    current = current.data;
+  }
+
+  return undefined;
+}
+
+function normalizeFinanceData(value: unknown): FinanceData | undefined {
+  const payload = extractNestedFinanceData(value);
+
+  if (!payload) {
+    return undefined;
+  }
+
+  const summary = payload.summary ?? {};
+  const kpis = payload.kpis ?? summary;
+
+  return {
+    filters: {
+      period: String(payload.filters?.period ?? "today"),
+      cashier_id: payload.filters?.cashier_id ?? null,
+      payment_method: payload.filters?.payment_method ?? null,
+      outlet: String(payload.filters?.outlet ?? "all"),
+      cashiers: Array.isArray(payload.filters?.cashiers) ? payload.filters.cashiers : [],
+      payment_methods: Array.isArray(payload.filters?.payment_methods) ? payload.filters.payment_methods : [],
+    },
+    kpis: {
+      gross_sales: Number(kpis.gross_sales ?? kpis.today_sales ?? 0),
+      net_sales: Number(kpis.net_sales ?? kpis.today_sales ?? 0),
+      expenses: Number(kpis.expenses ?? 0),
+      net_profit: Number(kpis.net_profit ?? 0),
+      net_margin: Number(kpis.net_margin ?? 0),
+      cash_sales: Number(kpis.cash_sales ?? 0),
+      cash_share: Number(kpis.cash_share ?? 0),
+      non_cash_sales: Number(kpis.non_cash_sales ?? 0),
+      non_cash_share: Number(kpis.non_cash_share ?? 0),
+      refunds: Number(kpis.refunds ?? 0),
+      refund_transactions: Number(kpis.refund_transactions ?? 0),
+      open_cashier_count: Number(kpis.open_cashier_count ?? 0),
+      open_cash_expected: Number(kpis.open_cash_expected ?? 0),
+    },
+    revenue_profit_trend: Array.isArray(payload.revenue_profit_trend) ? payload.revenue_profit_trend : [],
+    payment_methods: Array.isArray(payload.payment_methods) ? payload.payment_methods : [],
+    cashier_reconciliation: Array.isArray(payload.cashier_reconciliation) ? payload.cashier_reconciliation : [],
+    sales_summary: {
+      food_sales: Number(payload.sales_summary?.food_sales ?? 0),
+      beverage_sales: Number(payload.sales_summary?.beverage_sales ?? 0),
+      other_revenue: Number(payload.sales_summary?.other_revenue ?? 0),
+      total_gross_sales: Number(payload.sales_summary?.total_gross_sales ?? kpis.gross_sales ?? kpis.today_sales ?? 0),
+    },
+    requires_attention: Array.isArray(payload.requires_attention) ? payload.requires_attention : [],
+    recent_payments: Array.isArray(payload.recent_payments) ? payload.recent_payments : [],
+    expenses: Array.isArray(payload.expenses) ? payload.expenses : [],
+    refunds_credit: {
+      refunds_amount: Number(payload.refunds_credit?.refunds_amount ?? kpis.refunds ?? 0),
+      refund_transactions: Number(payload.refunds_credit?.refund_transactions ?? kpis.refund_transactions ?? 0),
+      voided_orders: Number(payload.refunds_credit?.voided_orders ?? 0),
+      pending_approval: Number(payload.refunds_credit?.pending_approval ?? 0),
+      outstanding_credit: Number(payload.refunds_credit?.outstanding_credit ?? 0),
+      credit_orders: Number(payload.refunds_credit?.credit_orders ?? 0),
+      overdue_amount: Number(payload.refunds_credit?.overdue_amount ?? 0),
+    },
+    profitability: {
+      net_sales: Number(payload.profitability?.net_sales ?? kpis.net_sales ?? kpis.today_sales ?? 0),
+      consumption_cost: Number(payload.profitability?.consumption_cost ?? 0),
+      gross_profit: Number(payload.profitability?.gross_profit ?? 0),
+      operating_expenses: Number(payload.profitability?.operating_expenses ?? kpis.expenses ?? 0),
+      net_profit: Number(payload.profitability?.net_profit ?? kpis.net_profit ?? 0),
+      gross_margin: Number(payload.profitability?.gross_margin ?? 0),
+      net_margin: Number(payload.profitability?.net_margin ?? kpis.net_margin ?? 0),
+      consumption_percent: Number(payload.profitability?.consumption_percent ?? 0),
+    },
+    daily_closing: {
+      sales_posted: Boolean(payload.daily_closing?.sales_posted ?? false),
+      closed_sessions: Number(payload.daily_closing?.closed_sessions ?? 0),
+      total_sessions: Number(payload.daily_closing?.total_sessions ?? 0),
+      payment_reconciliation: Boolean(payload.daily_closing?.payment_reconciliation ?? false),
+      refund_reviewed: Number(payload.daily_closing?.refund_reviewed ?? 0),
+      refund_total: Number(payload.daily_closing?.refund_total ?? 0),
+      expense_posting: Boolean(payload.daily_closing?.expense_posting ?? false),
+      cash_variance_review: Boolean(payload.daily_closing?.cash_variance_review ?? false),
+      status: String(payload.daily_closing?.status ?? "open"),
+    },
+  };
+}
+
 const moneyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "ETB",
@@ -193,7 +286,7 @@ export default function FinanceDashboardPage() {
     retry: 1,
   });
 
-  const data = query.data?.data;
+  const data = normalizeFinanceData(query.data);
 
   const maxPayment = useMemo(
     () => Math.max(1, ...(data?.payment_methods ?? []).map((row) => row.amount)),

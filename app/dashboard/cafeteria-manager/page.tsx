@@ -119,6 +119,120 @@ type ManagerData = {
 
 type Response = { success: boolean; data?: ManagerData; message?: string };
 
+function extractNestedData(value: unknown): any {
+  let current: any = value;
+
+  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth += 1) {
+    if (current.kpis || current.summary) {
+      return current;
+    }
+
+    current = current.data;
+  }
+
+  return undefined;
+}
+
+function normalizeManagerData(value: unknown): ManagerData | undefined {
+  const payload = extractNestedData(value);
+
+  if (!payload) {
+    return undefined;
+  }
+
+  if (payload.kpis) {
+    return payload as ManagerData;
+  }
+
+  const summary = payload.summary ?? {};
+  const todaySales = Number(summary.today_sales ?? 0);
+  const ordersToday = Number(summary.today_orders ?? 0);
+
+  return {
+    kpis: {
+      today_sales: todaySales,
+      orders_today: ordersToday,
+      occupied_tables: Number(summary.occupied_tables ?? 0),
+      total_tables: Number(summary.total_tables ?? 0),
+      average_order_value: ordersToday > 0 ? todaySales / ordersToday : 0,
+      net_sales: Number(summary.net_sales ?? todaySales),
+      consumption_cost: Number(summary.consumption_cost ?? 0),
+      expenses: Number(summary.expenses ?? 0),
+      net_profit: Number(summary.net_profit ?? 0),
+      profit_margin: Number(summary.profit_margin ?? 0),
+    },
+    sales_trend: Array.isArray(payload.sales_trend) ? payload.sales_trend : [],
+    live_order_status: {
+      new: Number(payload.live_order_status?.new ?? 0),
+      preparing: Number(payload.live_order_status?.preparing ?? 0),
+      ready: Number(payload.live_order_status?.ready ?? 0),
+      served: Number(payload.live_order_status?.served ?? 0),
+      cancelled: Number(payload.live_order_status?.cancelled ?? 0),
+      active: Number(payload.live_order_status?.active ?? 0),
+    },
+    operations: {
+      tables: {
+        occupied: Number(payload.operations?.tables?.occupied ?? 0),
+        available: Number(payload.operations?.tables?.available ?? 0),
+        reserved: Number(payload.operations?.tables?.reserved ?? 0),
+      },
+      kitchen: {
+        queued: Number(payload.operations?.kitchen?.queued ?? 0),
+        ready: Number(payload.operations?.kitchen?.ready ?? 0),
+        avg_minutes: Number(payload.operations?.kitchen?.avg_minutes ?? 0),
+      },
+      bar: {
+        queued: Number(payload.operations?.bar?.queued ?? 0),
+        ready: Number(payload.operations?.bar?.ready ?? 0),
+        avg_minutes: Number(payload.operations?.bar?.avg_minutes ?? 0),
+      },
+      cashiers: {
+        open: Number(payload.operations?.cashiers?.open ?? 0),
+        closed: Number(payload.operations?.cashiers?.closed ?? 0),
+        sales: Number(payload.operations?.cashiers?.sales ?? 0),
+      },
+    },
+    table_status: Array.isArray(payload.table_status) ? payload.table_status : [],
+    requires_attention: Array.isArray(payload.requires_attention)
+      ? payload.requires_attention
+      : Number(summary.pending_approvals ?? 0) > 0
+        ? [{ label: "Pending Approvals", count: Number(summary.pending_approvals) }]
+        : [],
+    kitchen_bar_performance: Array.isArray(payload.kitchen_bar_performance)
+      ? payload.kitchen_bar_performance
+      : [],
+    top_selling_items: Array.isArray(payload.top_selling_items) ? payload.top_selling_items : [],
+    inventory: {
+      low_stock: Number(payload.inventory?.low_stock ?? 0),
+      out_of_stock: Number(payload.inventory?.out_of_stock ?? 0),
+      stock_value: Number(payload.inventory?.stock_value ?? 0),
+      today_consumption: Number(payload.inventory?.today_consumption ?? 0),
+    },
+    procurement: {
+      pending_pr: Number(payload.procurement?.pending_pr ?? summary.pending_approvals ?? 0),
+      approved_pr: Number(payload.procurement?.approved_pr ?? 0),
+      open_po: Number(payload.procurement?.open_po ?? 0),
+      awaiting_delivery: Number(payload.procurement?.awaiting_delivery ?? 0),
+      pending_grn: Number(payload.procurement?.pending_grn ?? 0),
+    },
+    cashier_sessions: Array.isArray(payload.cashier_sessions) ? payload.cashier_sessions : [],
+    staff_performance: Array.isArray(payload.staff_performance) ? payload.staff_performance : [],
+    shift_status: payload.shift_status && typeof payload.shift_status === "object"
+      ? payload.shift_status
+      : {},
+    financial_summary: {
+      gross_sales: Number(payload.financial_summary?.gross_sales ?? todaySales),
+      refunds: Number(payload.financial_summary?.refunds ?? 0),
+      net_sales: Number(payload.financial_summary?.net_sales ?? todaySales),
+      consumption_cost: Number(payload.financial_summary?.consumption_cost ?? 0),
+      gross_profit: Number(payload.financial_summary?.gross_profit ?? todaySales),
+      expenses: Number(payload.financial_summary?.expenses ?? 0),
+      net_profit: Number(payload.financial_summary?.net_profit ?? 0),
+      profit_margin: Number(payload.financial_summary?.profit_margin ?? 0),
+    },
+  };
+}
+
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "ETB",
@@ -169,7 +283,7 @@ export default function ManagerDashboardPage() {
     retry: 1,
   });
 
-  const data = query.data?.data;
+  const data = normalizeManagerData(query.data);
 
   if (query.isLoading) {
     return (
