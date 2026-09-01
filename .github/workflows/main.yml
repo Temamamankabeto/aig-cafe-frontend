@@ -49,10 +49,20 @@ jobs:
         shell: bash
         run: |
           test -f deploy/server.js
+          test -f deploy/package.json
+          test -d deploy/.next
           test -d deploy/.next/static
 
-          echo "Deployment artifact created successfully."
-          find deploy -maxdepth 2 -type f | head -50
+          echo "Standalone deployment artifact verified successfully."
+          echo "Root files:"
+          find deploy -maxdepth 1 -type f -print
+
+          echo "Next.js static directory:"
+          find deploy/.next/static -maxdepth 2 -type f | head -20
+
+          if [ -d "deploy/public" ]; then
+            echo "Public directory included."
+          fi
 
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
@@ -60,4 +70,5 @@ jobs:
           name: enterpos-frontend-standalone
           path: deploy/
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 7
