@@ -1,58 +1,63 @@
-name: 🚀 Deploy website on push
+name: Build Frontend Artifact
 
 on:
   push:
     branches:
-      - master
       - main
+  workflow_dispatch:
 
 jobs:
-  web-deploy:
-    name: 🎉 Deploy
+  build:
     runs-on: ubuntu-latest
 
+    env:
+      NODE_ENV: production
+      NEXT_PUBLIC_BACKEND_URL: https://enterposback.adamacity.gov.et
+      NEXT_PUBLIC_API_URL: https://enterposback.adamacity.gov.et/api
+      NEXT_PUBLIC_API_TIMEOUT: 15000
+
     steps:
-      - name: 🚚 Get latest code
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: 🔧 Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24.16.0"
+          node-version: "22"
+          cache: npm
 
-      - name: 🔨 Build production standalone application
-        env:
-          SMS_BASE_URL: ${{ secrets.SMS_BASE_URL }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
-          NEXT_PUBLIC_BACKEND_URL: ${{ secrets.NEXT_PUBLIC_BACKEND_URL }}
-          NEXT_PUBLIC_API_TIMEOUT: "15000"
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Prepare standalone deployment artifact
+        shell: bash
         run: |
-          set -e
+          rm -rf deploy
+          mkdir -p deploy/.next
 
-          rm -f .env.local
-
-          npm ci
-          npm run build
-
-          mkdir -p .next/standalone/.next
-          cp -r .next/static .next/standalone/.next/static
+          cp -a .next/standalone/. deploy/
+          cp -a .next/static deploy/.next/static
 
           if [ -d "public" ]; then
-            cp -r public .next/standalone/public
+            cp -a public deploy/public
           fi
 
-          test -f .next/standalone/server.js
-          test -d .next/standalone/.next/static
+      - name: Verify deployment artifact
+        shell: bash
+        run: |
+          test -f deploy/server.js
+          test -d deploy/.next/static
 
-      - name: 📂 Deploy standalone application
-        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+          echo "Deployment artifact created successfully."
+          find deploy -maxdepth 2 -type f | head -50
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftp
-          port: 21
-          local-dir: ./.next/standalone/
-          server-dir: ./
-          dangerous-clean-slate: false
+          name: enterpos-frontend-standalone
+          path: deploy/
+          if-no-files-found: error
+          retention-days: 7
