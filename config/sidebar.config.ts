@@ -83,6 +83,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     group("Administration", Settings, [
       { label: "Users", href: "/dashboard/users", permission: "users.read" },
       { label: "Departments", href: "/dashboard/general-admin/departments", permission: "inventory.read" },
+      { label: "Menu Management", href: "/dashboard/modules/menu", permission: "menu.read" },
       { label: "Tables & Waiters", href: "/dashboard/modules/tables", permission: "tables.read" },
     ]),
     group("Operations & Reports", BarChart3, [
