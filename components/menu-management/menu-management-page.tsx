@@ -678,7 +678,7 @@ export function MenuManagementPage({
         <>
           <CategoryDialog key={selectedCategory?.id ?? "new-category"} open={categoryOpen} onOpenChange={handleCategoryDialogChange} category={selectedCategory} scope={effectiveScope} />
           <ItemDialog key={selectedItem?.id ?? "new-item"} open={itemOpen} onOpenChange={handleItemDialogChange} item={selectedItem} categories={categories} scope={effectiveScope} />
-          <ItemDetailDialog key={detailItem?.id ?? "detail"} open={detailOpen} onOpenChange={handleDetailDialogChange} item={detailItem} categories={categories} scope={effectiveScope} />
+          <ItemDetailDialog key={detailItem?.id ?? "detail"} open={detailOpen} onOpenChange={handleDetailDialogChange} item={detailItem} categories={categories} />
         </>
       )}
     </div>
