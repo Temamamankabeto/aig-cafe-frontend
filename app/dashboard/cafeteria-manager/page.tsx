@@ -140,13 +140,9 @@ function normalizeManagerData(value: unknown): ManagerData | undefined {
     return undefined;
   }
 
-  if (payload.kpis) {
-    return payload as ManagerData;
-  }
-
-  const summary = payload.summary ?? {};
+  const summary = payload.kpis ?? payload.summary ?? {};
   const todaySales = Number(summary.today_sales ?? 0);
-  const ordersToday = Number(summary.today_orders ?? 0);
+  const ordersToday = Number(summary.orders_today ?? summary.today_orders ?? 0);
 
   return {
     kpis: {
