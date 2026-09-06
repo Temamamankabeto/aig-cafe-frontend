@@ -1,2 +1,2 @@
-import { CreditOrdersPage } from '@/components/order-management';
-export default function Page() { return <CreditOrdersPage />; }
+import { CreditOrdersWorkspace } from '@/components/order-management/credit-orders-workspace';
+export default function Page() { return <CreditOrdersWorkspace />; }

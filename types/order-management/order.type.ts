@@ -57,6 +57,7 @@ export type OrderFilters = {
   date_to?: string;
   waiter_id?: Id;
   credit_account_id?: Id;
+  credit_agreement_id?: Id;
   page?: number;
   per_page?: number;
   active?: boolean | number | string;
@@ -263,25 +264,29 @@ export type Payment = {
 export type CreditAccountUser = {
   id: Id;
   credit_account_id?: Id;
+  user_id?: Id | null;
   full_name: string;
-  phone?: string | null;
-  employee_id?: string | null;
-  position?: string | null;
-  id_number?: string | null;
-  daily_limit?: number | string | null;
-  monthly_limit?: number | string | null;
+  phone: string;
   is_active?: boolean | number;
   created_at?: string;
 };
 
 export type CreditAccountUserPayload = {
   full_name: string;
-  phone?: string;
-  employee_id?: string;
-  position?: string;
-  id_number?: string;
-  daily_limit?: number | null;
-  monthly_limit?: number | null;
+  phone: string;
+  is_active?: boolean;
+};
+
+export type CreditMealType = {
+  id: Id;
+  name: string;
+  is_active?: boolean | number;
+  agreements_count?: number;
+  created_at?: string;
+};
+
+export type CreditMealTypePayload = {
+  name: string;
   is_active?: boolean;
 };
 
@@ -289,6 +294,8 @@ export type CreditAgreement = {
   id: Id;
   credit_account_id?: Id;
   meal_type: string;
+  meal_types?: CreditMealType[];
+  mealTypes?: CreditMealType[];
   agreement_type?: 'order_based' | 'beef_based' | string;
   number_of_person?: number | string;
   single_person_name?: string | null;
@@ -301,10 +308,20 @@ export type CreditAgreement = {
   status?: 'active' | 'disabled' | 'expired' | string;
   is_active_now?: boolean;
   created_at?: string;
+  authorized_users?: CreditAccountUser[];
+  authorizedUsers?: CreditAccountUser[];
+};
+
+export type CreditAgreementAuthorizedPersonPayload = {
+  id?: Id;
+  full_name: string;
+  phone: string;
+  is_active?: boolean;
 };
 
 export type CreditAgreementPayload = {
-  meal_type: string;
+  meal_type?: string;
+  meal_type_ids: Id[];
   agreement_type?: 'order_based' | 'beef_based' | string;
   number_of_person: number;
   single_person_name?: string | null;
@@ -314,6 +331,7 @@ export type CreditAgreementPayload = {
   total_price?: number | null;
   status?: 'active' | 'disabled' | 'expired' | string;
   agreement_letter?: File | null;
+  authorized_persons?: CreditAgreementAuthorizedPersonPayload[];
 };
 
 export type CreditAccount = {

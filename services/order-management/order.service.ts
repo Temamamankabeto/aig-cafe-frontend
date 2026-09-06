@@ -1,5 +1,5 @@
 import api, { unwrap } from '@/lib/api';
-import type { ApiEnvelope, Id, CreditAccount, CreditAccountPayload, CreditAgreement, CreditAgreementPayload, CreditOrder, CreditSettlementPayload, Order, OrderFilters, OrderPayload, PackageOrder, PackageOrderPayload, PackageOrderSchedulePayload, PackagePayload, PackageTemplate, PaginatedResponse, PrepTicket, PaymentPayload, ConvertCreditPayload, LiteUser, PaymentMethod } from '@/types/order-management';
+import type { ApiEnvelope, Id, CreditAccount, CreditAccountPayload, CreditAgreement, CreditAgreementPayload, CreditMealType, CreditMealTypePayload, CreditOrder, CreditSettlementPayload, Order, OrderFilters, OrderPayload, PackageOrder, PackageOrderPayload, PackageOrderSchedulePayload, PackagePayload, PackageTemplate, PaginatedResponse, PrepTicket, PaymentPayload, ConvertCreditPayload, LiteUser, PaymentMethod } from '@/types/order-management';
 
 function clean(params: Record<string, unknown> = {}) { const out: Record<string, unknown> = {}; Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '' && v !== 'all') out[k] = v; }); return out; }
 function rows<T>(body: any): T[] { const d = body?.data; if (Array.isArray(body)) return body; if (Array.isArray(d)) return d; if (Array.isArray(d?.data)) return d.data; return []; }
@@ -21,6 +21,19 @@ function listEndpoint(scope: OrderApiScope = 'admin') {
   // This makes newly created waiter orders appear immediately without changing other scopes.
   if (scope === 'waiter') return '/waiter/orders/my';
   return baseEndpoint(scope);
+}
+
+function agreementForm(payload: CreditAgreementPayload) {
+  const form = new FormData();
+  Object.entries(payload as Record<string, unknown>).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    if (key === 'authorized_persons' || key === 'meal_type_ids') {
+      form.append(key, JSON.stringify(value));
+      return;
+    }
+    form.append(key, value as Blob | string);
+  });
+  return form;
 }
 
 export const orderService = {
@@ -91,20 +104,34 @@ export const orderService = {
   async prepTicketAction(kind: 'kitchen'|'bar', id: string|number, action: 'accept'|'ready'|'served'|'reject'|'delay') { const res = await api.post(`/${kind}/tickets/${id}/${action}`); return unwrap<ApiEnvelope<PrepTicket>>(res); },
 
 
+  async creditMealTypes(params: Record<string, unknown> = {}) { const res = await api.get('/credit/meal-types', { params: clean(params) }); return rows<CreditMealType>(res.data); },
+  async createCreditMealType(payload: CreditMealTypePayload) { const res = await api.post('/credit/meal-types', payload); return unwrap<ApiEnvelope<CreditMealType>>(res); },
+  async updateCreditMealType(id: string|number, payload: CreditMealTypePayload) { const res = await api.put(`/credit/meal-types/${id}`, payload); return unwrap<ApiEnvelope<CreditMealType>>(res); },
+  async deleteCreditMealType(id: string|number) { const res = await api.delete(`/credit/meal-types/${id}`); return unwrap<ApiEnvelope<null>>(res); },
+  async pendingAuthorizedCreditOrders(params: Record<string, unknown> = {}) { const res = await api.get('/credit/pending-orders', { params: clean(params) }); return page<Order>(res.data); },
+  async confirmAuthorizedCreditOrder(id: string|number) { const res = await api.post(`/credit/pending-orders/${id}/confirm`); return unwrap<ApiEnvelope<Order>>(res); },
+  async myAuthorizedCreditProfile() { const res = await api.get('/customer/credit/profile'); return unwrap<ApiEnvelope<any>>(res); },
+  async authorizedCreditMenu(search = '') { const res = await api.get('/customer/credit/menu', { params: clean({ search }) }); return rows<any>(res.data); },
+  async myAuthorizedCreditOrders(params: Record<string, unknown> = {}) { const res = await api.get('/customer/credit/orders', { params: clean(params) }); return page<Order>(res.data); },
+  async createAuthorizedCreditOrder(payload: { payment_type: 'cash'|'credit'; credit_agreement_id?: Id; meal_type_id?: Id; notes?: string; items: Array<{ menu_item_id: Id; quantity: number; notes?: string }> }) { const res = await api.post('/customer/credit/orders', payload); return unwrap<ApiEnvelope<Order>>(res); },
+
   async creditAccounts(params: OrderFilters = {}) { const res = await api.get('/credit/accounts', { params: clean(params) }); return page<CreditAccount>(res.data); },
   async createCreditAccount(payload: CreditAccountPayload) { const res = await api.post('/credit/accounts', payload); return unwrap<ApiEnvelope<CreditAccount>>(res); },
   async updateCreditAccount(id: string|number, payload: CreditAccountPayload) { const res = await api.put(`/credit/accounts/${id}`, payload); return unwrap<ApiEnvelope<CreditAccount>>(res); },
   async creditAgreements(accountId: string|number) { const res = await api.get(`/credit/accounts/${accountId}/agreements`, { params: { per_page: 100 } }); return page<CreditAgreement>(res.data); },
-  async createCreditAgreement(accountId: string|number, payload: CreditAgreementPayload) { const form = new FormData(); Object.entries(payload as any).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') form.append(key, value as any); }); const res = await api.post(`/credit/accounts/${accountId}/agreements`, form, { headers: { 'Content-Type': 'multipart/form-data' } }); return unwrap<ApiEnvelope<CreditAgreement>>(res); },
-  async updateCreditAgreement(accountId: string|number, agreementId: string|number, payload: CreditAgreementPayload) { const form = new FormData(); Object.entries(payload as any).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') form.append(key, value as any); }); const res = await api.post(`/credit/accounts/${accountId}/agreements/${agreementId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } }); return unwrap<ApiEnvelope<CreditAgreement>>(res); },
+  async createCreditAgreement(accountId: string|number, payload: CreditAgreementPayload) { const form = agreementForm(payload); const res = await api.post(`/credit/accounts/${accountId}/agreements`, form, { headers: { 'Content-Type': 'multipart/form-data' } }); return unwrap<ApiEnvelope<CreditAgreement>>(res); },
+  async updateCreditAgreement(accountId: string|number, agreementId: string|number, payload: CreditAgreementPayload) { const form = agreementForm(payload); const res = await api.post(`/credit/accounts/${accountId}/agreements/${agreementId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } }); return unwrap<ApiEnvelope<CreditAgreement>>(res); },
   async disableCreditAgreement(accountId: string|number, agreementId: string|number) { const res = await api.patch(`/credit/accounts/${accountId}/agreements/${agreementId}/disable`); return unwrap<ApiEnvelope<CreditAgreement>>(res); },
   async toggleCreditAccount(id: string|number) { const res = await api.patch(`/credit/accounts/${id}/toggle`); return unwrap<ApiEnvelope<CreditAccount>>(res); },
   async scanCreditCard(cardNumber: string) { const res = await api.get('/credit/cards/scan', { params: { card_number: cardNumber } }); return unwrap<ApiEnvelope<any>>(res); },
   async creditOrders(params: OrderFilters = {}) { const res = await api.get('/credit/orders', { params: clean(params) }); return page<CreditOrder>(res.data); },
+  async creditAgreementStatement(agreementId: string|number) { const res = await api.get(`/credit/agreements/${agreementId}/statement`); const body = unwrap<ApiEnvelope<any>>(res); return body.data; },
+  async settleCreditAgreementOrders(agreementId: string|number, payload: { order_ids: Id[]; payment_method: PaymentMethod; reference_number?: string | null; notes?: string | null }) { const res = await api.post(`/credit/agreements/${agreementId}/settle-orders`, payload); return unwrap<ApiEnvelope<CreditOrder[]>>(res); },
   async approveCreditOrder(id: string|number) { const res = await api.post(`/credit/orders/${id}/approve`); return unwrap<ApiEnvelope<CreditOrder>>(res); },
   async rejectCreditOrder(id: string|number, note?: string) { const res = await api.post(`/credit/orders/${id}/reject`, { note }); return unwrap<ApiEnvelope<CreditOrder>>(res); },
   async settleCreditOrder(id: string|number, payload: CreditSettlementPayload) { const res = await api.post(`/credit/orders/${id}/settlements`, payload); return unwrap<ApiEnvelope<CreditOrder>>(res); },
   async approveCreditSettlement(settlementId: string|number, note?: string) { const res = await api.post(`/credit/settlements/${settlementId}/approve`, { note }); return unwrap<ApiEnvelope<CreditOrder>>(res); },
+  async approveCreditAgreementSettlements(agreementId: string|number, payload: { order_ids: Id[]; note?: string | null }) { const res = await api.post(`/credit/agreements/${agreementId}/approve-settlements`, payload); return unwrap<ApiEnvelope<CreditOrder[]>>(res); },
 
   async packages(params: OrderFilters = {}) { const res = await api.get('/packages', { params: clean(params) }); return page<PackageTemplate>(res.data); },
   async package(id: string|number) { const res = await api.get(`/packages/${id}`); return unwrap<ApiEnvelope<PackageTemplate>>(res); },

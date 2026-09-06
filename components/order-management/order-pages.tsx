@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { authService } from "@/services/auth/auth.service";
+import { orderService } from "@/services/order-management/order.service";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { MoreHorizontal, Plus, Printer, Search, ShoppingCart } from "lucide-react";
@@ -29,6 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -53,6 +55,7 @@ import { useMenuItemsQuery } from "@/hooks/queries/menu-management";
 import { useTablesQuery } from "@/hooks/queries/table-management";
 import {
   useCreditAccountsQuery,
+  useCreditAgreementsQuery,
   useCreditOrdersQuery,
   useOrderQuery,
   useOrdersQuery,
@@ -62,6 +65,7 @@ import {
 import {
   useApproveCreditOrderMutation,
   useApproveCreditSettlementMutation,
+  useApproveCreditAgreementSettlementsMutation,
   useApproveVoidOrderMutation,
   useConfirmOrderMutation,
   useCreateCreditAccountMutation,
@@ -71,6 +75,7 @@ import {
   useRequestCancelOrderMutation,
   useServeOrderMutation,
   useSettleCreditOrderMutation,
+  useSettleCreditAgreementOrdersMutation,
   usePrepTicketActionMutation,
   useAddOrderItemMutation,
   useUpdateOrderItemMutation,
@@ -2586,18 +2591,24 @@ export function CreditAccountsPage() {
 export function CreditOrdersPage() {
   const [settle, setSettle] = useState<CreditOrder | null>(null);
   const [amount, setAmount] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Array<string | number>>([]);
   const [filters, setFilters] = useState({
-    per_page: 20,
+    per_page: 100,
     credit_account_id: "all",
+    credit_agreement_id: "all",
     status: "all",
     search: "",
   });
 
   const accountsQuery = useCreditAccountsQuery({ per_page: 200, status: "active" });
+  const selectedAccountId = filters.credit_account_id !== "all" ? filters.credit_account_id : undefined;
+  const agreementsQuery = useCreditAgreementsQuery(selectedAccountId);
   const query = useCreditOrdersQuery(filters);
   const approve = useApproveCreditOrderMutation();
   const settlement = useSettleCreditOrderMutation(() => setSettle(null));
+  const bulkSettlement = useSettleCreditAgreementOrdersMutation(() => setSelectedIds([]));
   const approveSettlement = useApproveCreditSettlementMutation();
+  const bulkApproveSettlements = useApproveCreditAgreementSettlementsMutation(() => setSelectedIds([]));
   const [role, setRole] = useState<"finance" | "manager" | "admin" | "other">("other");
   const rows = query.data?.data ?? [];
 
@@ -2614,8 +2625,205 @@ export function CreditOrdersPage() {
     else setRole("other");
   }, []);
 
+  const selectedAccount = (accountsQuery.data?.data ?? []).find(
+    (account) => String(account.id) === String(filters.credit_account_id),
+  );
+  const agreements = agreementsQuery.data?.data ?? [];
+  const selectedAgreement = agreements.find(
+    (agreement) => String(agreement.id) === String(filters.credit_agreement_id),
+  );
+  const selectableRows = rows.filter((row) => {
+    if (role === "manager") {
+      return (row.settlements ?? []).some((item) => item.status === "pending_approval");
+    }
+
+    const status = String(row.status ?? "").toLowerCase();
+    const pendingAmount = (row.settlements ?? [])
+      .filter((item) => item.status === "pending_approval")
+      .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+    return ["credit_approved", "partially_settled", "overdue"].includes(status)
+      && Number(row.remaining_amount ?? 0) - pendingAmount > 0;
+  });
+  const allVisibleSelected = selectableRows.length > 0 && selectableRows.every((row) => selectedIds.some((id) => String(id) === String(row.id)));
+
   function updateFilter(patch: Partial<typeof filters>) {
     setFilters((current) => ({ ...current, ...patch }));
+  }
+
+  function toggleRow(id: string | number, checked: boolean) {
+    setSelectedIds((current) => checked
+      ? Array.from(new Set([...current, id]))
+      : current.filter((value) => String(value) !== String(id)));
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    const ids = selectableRows.map((row) => row.id);
+    setSelectedIds((current) => {
+      if (checked) return Array.from(new Set([...current, ...ids]));
+      const visible = new Set(ids.map(String));
+      return current.filter((id) => !visible.has(String(id)));
+    });
+  }
+
+  async function selectAllAgreementOrders() {
+    if (filters.credit_agreement_id === "all") {
+      toast.error("Select a credit agreement first.");
+      return;
+    }
+    try {
+      const statement = await orderService.creditAgreementStatement(filters.credit_agreement_id);
+      const orders = statement?.orders ?? [];
+      const ids = orders.filter((row: CreditOrder) => {
+        if (role === "manager") {
+          return (row.settlements ?? []).some((item) => item.status === "pending_approval");
+        }
+
+        const status = String(row.status ?? "").toLowerCase();
+        const pendingAmount = (row.settlements ?? [])
+          .filter((item) => item.status === "pending_approval")
+          .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+        return ["credit_approved", "partially_settled", "overdue"].includes(status)
+          && Number(row.remaining_amount ?? 0) - pendingAmount > 0;
+      }).map((row: CreditOrder) => row.id);
+      setSelectedIds(ids);
+      toast.success(role === "manager"
+        ? `${ids.length} order payment(s) waiting for approval selected.`
+        : `${ids.length} payable agreement order(s) selected.`);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message ?? error?.message ?? "Failed to select agreement orders.");
+    }
+  }
+
+  async function printFinancialStatement() {
+    if (filters.credit_agreement_id === "all") {
+      toast.error("Select a credit account and agreement first.");
+      return;
+    }
+
+    try {
+      const statement = await orderService.creditAgreementStatement(filters.credit_agreement_id);
+      const statementOrders: CreditOrder[] = statement?.orders ?? [];
+      const account = statement?.account ?? selectedAccount;
+      const agreement = statement?.agreement ?? selectedAgreement;
+      const totals = statement?.totals ?? {};
+      const popup = window.open("", "_blank", "width=1200,height=850");
+      if (!popup) {
+        toast.error("Pop-up blocked. Allow pop-ups to print the financial statement.");
+        return;
+      }
+
+      const esc = (value: unknown) => String(value ?? "—")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+      const meal = agreement?.meal_types?.map((item: any) => item.name).filter(Boolean).join(", ") || agreement?.meal_type || "—";
+      const formatStatementDate = (value: unknown) => {
+        if (!value) return "—";
+        const parsed = new Date(String(value));
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toLocaleDateString();
+      };
+      const body = statementOrders.map((item, index) => {
+        const orderItems = item.order?.items ?? item.order?.order_items ?? [];
+        const menuItems = orderItems.length
+          ? orderItems.map((orderItem: any) => {
+              const name = orderItem.menu_item?.name ?? orderItem.menuItem?.name ?? orderItem.name ?? `Item #${orderItem.menu_item_id ?? orderItem.id}`;
+              const quantity = Number(orderItem.quantity ?? 0);
+              const quantityLabel = Number.isInteger(quantity) ? String(quantity) : String(quantity).replace(/\.?0+$/, "");
+              return `<div class="menu-line"><span>${esc(name)}</span><strong>× ${esc(quantityLabel || 0)}</strong></div>`;
+            }).join("")
+          : '<span class="muted">No menu items</span>';
+
+        return `
+        <tr>
+          <td>${index + 1}</td>
+          <td class="menu-items">${menuItems}</td>
+          <td class="num">${esc(money(item.total_amount))}</td>
+          <td class="num">${esc(money(item.paid_amount))}</td>
+          <td class="num">${esc(money(item.remaining_amount))}</td>
+          <td>${esc(String(item.status ?? "").replace(/_/g, " "))}</td>
+        </tr>`;
+      }).join("");
+
+      popup.document.write(`<!doctype html><html><head><title>Financial Statement - ${esc(account?.name)}</title>
+        <style>
+          body{font-family:Arial,sans-serif;color:#111;padding:28px;font-size:12px}h1{font-size:22px;margin:0 0 6px}h2{font-size:14px;margin:0 0 20px;font-weight:500}.meta{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 24px;margin:18px 0}.meta div{border-bottom:1px solid #ddd;padding:6px 0}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}.box{border:1px solid #bbb;padding:10px}.label{font-size:10px;color:#555;text-transform:uppercase}.value{font-size:16px;font-weight:700;margin-top:4px}table{width:100%;border-collapse:collapse;margin-top:18px}th,td{border:1px solid #bbb;padding:7px;text-align:left;vertical-align:top}th{background:#f3f3f3}.num{text-align:right;white-space:nowrap}.menu-items{min-width:320px}.menu-line{display:flex;justify-content:space-between;gap:18px;padding:2px 0;border-bottom:1px dotted #ddd}.menu-line:last-child{border-bottom:0}.menu-line strong{white-space:nowrap}.muted{color:#666}.footer{margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:80px}.sign{border-top:1px solid #111;padding-top:7px;text-align:center;margin-top:45px}@media print{body{padding:0}@page{size:A4 landscape;margin:12mm}}
+        </style></head><body>
+        <h1>Credit Agreement Financial Statement</h1><h2>AIG Cafeteria / ENTERPS</h2>
+        <div class="meta">
+          <div><strong>Credit Account:</strong> ${esc(account?.name)}</div>
+          <div><strong>Account No.:</strong> ${esc((account as any)?.account_number ?? `CR-${String(account?.id ?? "").padStart(6, "0")}`)}</div>
+          <div><strong>Agreement:</strong> #${esc(agreement?.id)}</div>
+          <div><strong>Meal Type(s):</strong> ${esc(meal)}</div>
+          <div><strong>Agreement Period:</strong> ${esc(formatStatementDate(agreement?.start_date))} - ${esc(formatStatementDate(agreement?.end_date))}</div>
+          <div><strong>Printed:</strong> ${esc(new Date().toLocaleString())}</div>
+        </div>
+        <div class="summary">
+          <div class="box"><div class="label">Orders</div><div class="value">${esc(totals.orders ?? statementOrders.length)}</div></div>
+          <div class="box"><div class="label">Total Amount</div><div class="value">${esc(money(totals.total_amount))}</div></div>
+          <div class="box"><div class="label">Paid Amount</div><div class="value">${esc(money(totals.paid_amount))}</div></div>
+          <div class="box"><div class="label">Remaining</div><div class="value">${esc(money(totals.remaining_amount))}</div></div>
+        </div>
+        <table><thead><tr><th>#</th><th>Menu Items Ordered</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Status</th></tr></thead><tbody>${body || '<tr><td colspan="6" style="text-align:center">No orders for this agreement.</td></tr>'}</tbody></table>
+        <div class="footer"><div class="sign">Prepared by Finance</div><div class="sign">Approved by Manager</div></div>
+        <script>window.onload=()=>{window.print();}</script></body></html>`);
+      popup.document.close();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message ?? error?.message ?? "Failed to prepare financial statement.");
+    }
+  }
+
+  function markSelectedAsPaid() {
+    if (filters.credit_agreement_id === "all") {
+      toast.error("Select a credit agreement first.");
+      return;
+    }
+    if (!selectedIds.length) {
+      toast.error("Select at least one payable order.");
+      return;
+    }
+
+    bulkSettlement.mutate(
+      {
+        agreementId: filters.credit_agreement_id,
+        payload: {
+          order_ids: selectedIds,
+          payment_method: "cash",
+          notes: "Bulk agreement payment recorded by Finance.",
+        },
+      },
+      {
+        onSuccess: (result: any) => toast.success(result?.message ?? "Payments recorded and sent for Manager approval."),
+        onError: (error: any) => toast.error(error?.response?.data?.message ?? error?.message ?? "Failed to record selected payments."),
+      },
+    );
+  }
+
+  function approveSelectedAgreementPayments() {
+    if (filters.credit_agreement_id === "all") {
+      toast.error("Select a credit agreement first.");
+      return;
+    }
+    if (!selectedIds.length) {
+      toast.error("Select at least one order payment to approve.");
+      return;
+    }
+
+    bulkApproveSettlements.mutate(
+      {
+        agreementId: filters.credit_agreement_id,
+        payload: {
+          order_ids: selectedIds,
+          note: "Selected agreement payments approved by Manager.",
+        },
+      },
+      {
+        onSuccess: (result: any) => toast.success(result?.message ?? "Selected agreement payments approved successfully."),
+        onError: (error: any) => toast.error(error?.response?.data?.message ?? error?.message ?? "Failed to approve selected payments."),
+      },
+    );
   }
 
   return (
@@ -2624,45 +2832,71 @@ export function CreditOrdersPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Credit Orders</h1>
           <p className="text-muted-foreground">
-            Finance records credit payments. A Manager reviews and approves them before balances are updated.
+            {role === "manager"
+              ? "Review Finance payment records by credit account and agreement, then approve selected payments."
+              : "Finance records credit payments. A Manager reviews and approves them before balances are updated."}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/dashboard/credit-accounts">Credit accounts</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/dashboard/order-management/pos/orders/create">
-              <Plus className="mr-2 h-4 w-4" />
-              New cashier order
-            </Link>
-          </Button>
-        </div>
+        {role === "admin" && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/dashboard/credit-accounts">Credit accounts</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/dashboard/order-management/pos/orders/create">
+                <Plus className="mr-2 h-4 w-4" />
+                New cashier order
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card className="rounded-2xl">
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>Filter the credit order list by credit account, status, or reference.</CardDescription>
+          <CardDescription>Choose a credit account, then an agreement, to review and settle its orders.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
+        <CardContent className="grid gap-4 md:grid-cols-4">
           <div className="grid gap-2">
             <Label>Credit account</Label>
             <Select
               value={filters.credit_account_id}
-              onValueChange={(credit_account_id) => updateFilter({ credit_account_id })}
+              onValueChange={(credit_account_id) => {
+                updateFilter({ credit_account_id, credit_agreement_id: "all" });
+                setSelectedIds([]);
+              }}
             >
               <SelectTrigger>
                 <SelectValue placeholder={accountsQuery.isLoading ? "Loading accounts..." : "All credit accounts"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All credit accounts</SelectItem>
-                {(accountsQuery.data?.data ?? []).map((account) => {
-                  return (
-                    <SelectItem key={account.id} value={String(account.id)}>
-                      {account.name}
-                    </SelectItem>
-                  );
+                {(accountsQuery.data?.data ?? []).map((account) => (
+                  <SelectItem key={account.id} value={String(account.id)}>{account.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-2">
+            <Label>Agreement</Label>
+            <Select
+              value={filters.credit_agreement_id}
+              disabled={!selectedAccountId || agreementsQuery.isLoading}
+              onValueChange={(credit_agreement_id) => {
+                updateFilter({ credit_agreement_id });
+                setSelectedIds([]);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={!selectedAccountId ? "Select account first" : agreementsQuery.isLoading ? "Loading agreements..." : "All agreements"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All agreements</SelectItem>
+                {agreements.map((agreement) => {
+                  const meal = agreement.meal_types?.map((item: any) => item.name).filter(Boolean).join(", ") || agreement.meal_type || "Agreement";
+                  return <SelectItem key={agreement.id} value={String(agreement.id)}>#{agreement.id} - {meal} ({agreement.start_date} - {agreement.end_date})</SelectItem>;
                 })}
               </SelectContent>
             </Select>
@@ -2685,22 +2919,62 @@ export function CreditOrdersPage() {
 
           <div className="grid gap-2">
             <Label>Search</Label>
-            <Input
-              value={filters.search}
-              onChange={(e) => updateFilter({ search: e.target.value })}
-              placeholder="Search reference or account"
-            />
+            <Input value={filters.search} onChange={(e) => updateFilter({ search: e.target.value })} placeholder="Search reference or account" />
           </div>
         </CardContent>
       </Card>
+
+      {role === "finance" && filters.credit_agreement_id !== "all" && (
+        <Card className="rounded-2xl">
+          <CardContent className="flex flex-col gap-3 pt-6 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="font-semibold">Agreement financial actions</div>
+              <div className="text-sm text-muted-foreground">
+                {selectedIds.length} payable order(s) selected. Bulk payment recording preserves the existing Manager approval workflow.
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={selectAllAgreementOrders}>Check all orders</Button>
+              <Button variant="outline" onClick={printFinancialStatement}>
+                <Printer className="mr-2 h-4 w-4" />
+                Print financial statement
+              </Button>
+              <Button disabled={!selectedIds.length || bulkSettlement.isPending} onClick={markSelectedAsPaid}>
+                {bulkSettlement.isPending ? "Recording..." : "Mark selected as paid"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {role === "manager" && filters.credit_agreement_id !== "all" && (
+        <Card className="rounded-2xl">
+          <CardContent className="flex flex-col gap-3 pt-6 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="font-semibold">Agreement payment approvals</div>
+              <div className="text-sm text-muted-foreground">
+                {selectedIds.length} order payment(s) selected from this agreement. Approving updates balances using the existing approval audit trail.
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={selectAllAgreementOrders}>Select all pending approvals</Button>
+              <Button disabled={!selectedIds.length || bulkApproveSettlements.isPending} onClick={approveSelectedAgreementPayments}>
+                {bulkApproveSettlements.isPending ? "Approving..." : "Approve selected"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="rounded-2xl">
         <CardContent className="pt-6">
           <Table>
             <TableHeader>
               <TableRow>
+                {["finance", "manager"].includes(role) && <TableHead className="w-12"><Checkbox checked={allVisibleSelected} disabled={filters.credit_agreement_id === "all"} onCheckedChange={(checked) => toggleAllVisible(Boolean(checked))} aria-label="Select all eligible visible orders" /></TableHead>}
                 <TableHead>Reference</TableHead>
                 <TableHead>Account</TableHead>
+                <TableHead>Agreement</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Paid</TableHead>
@@ -2711,19 +2985,23 @@ export function CreditOrdersPage() {
             </TableHeader>
             <TableBody>
               {query.isLoading ? (
-                <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">Loading credit orders...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={["finance", "manager"].includes(role) ? 10 : 9} className="h-24 text-center text-muted-foreground">Loading credit orders...</TableCell></TableRow>
               ) : rows.length ? (
                 rows.map((c) => {
                   const account = c.credit_account ?? c.account;
                   const status = String(c.status ?? "").toLowerCase();
                   const canApprove = ["pending", "credit_pending"].includes(status);
-                  const canSettle = !["fully_settled", "cancelled", "rejected"].includes(status) && Number(c.remaining_amount ?? 0) > 0;
                   const pendingSettlements = (c.settlements ?? []).filter((item) => item.status === "pending_approval");
+                  const pendingAmount = pendingSettlements.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+                  const canSettle = ["credit_approved", "partially_settled", "overdue"].includes(status) && Number(c.remaining_amount ?? 0) - pendingAmount > 0;
+                  const checked = selectedIds.some((id) => String(id) === String(c.id));
 
                   return (
                     <TableRow key={c.id}>
+                      {["finance", "manager"].includes(role) && <TableCell><Checkbox checked={checked} disabled={(role === "finance" ? !canSettle : pendingSettlements.length === 0) || filters.credit_agreement_id === "all"} onCheckedChange={(value) => toggleRow(c.id, Boolean(value))} aria-label={`Select credit order ${c.credit_reference ?? c.id}`} /></TableCell>}
                       <TableCell>{c.credit_reference ?? c.order?.order_number ?? c.id}</TableCell>
                       <TableCell>{account?.name ?? "—"}</TableCell>
+                      <TableCell>#{c.credit_agreement_id ?? c.agreement?.id ?? "—"}</TableCell>
                       <TableCell><StatusBadge status={c.status} /></TableCell>
                       <TableCell>{money(c.total_amount)}</TableCell>
                       <TableCell>{money(c.paid_amount)}</TableCell>
@@ -2731,39 +3009,20 @@ export function CreditOrdersPage() {
                       <TableCell>{date(c.created_at)}</TableCell>
                       <TableCell className="text-right">
                         {canApprove && ["manager", "admin"].includes(role) && (
-                          <Button size="sm" variant="outline" disabled={approve.isPending} onClick={() => approve.mutate(c.id)}>
-                            Approve
-                          </Button>
+                          <Button size="sm" variant="outline" disabled={approve.isPending} onClick={() => approve.mutate(c.id)}>Approve</Button>
                         )}
                         {canSettle && ["finance", "admin"].includes(role) && (
-                          <Button
-                            className="ml-2"
-                            size="sm"
-                            onClick={() => {
-                              setSettle(c);
-                              setAmount(Number(c.remaining_amount ?? 0));
-                            }}
-                          >
-                            Record payment
-                          </Button>
+                          <Button className="ml-2" size="sm" onClick={() => { setSettle(c); setAmount(Number(c.remaining_amount ?? 0)); }}>Record payment</Button>
                         )}
-                        {["manager", "admin"].includes(role) && pendingSettlements.map((item) => (
-                          <Button
-                            key={item.id}
-                            className="ml-2"
-                            size="sm"
-                            disabled={approveSettlement.isPending}
-                            onClick={() => approveSettlement.mutate({ settlementId: item.id })}
-                          >
-                            Approve {money(item.amount)}
-                          </Button>
+                        {(role === "admin" || (role === "manager" && filters.credit_agreement_id === "all")) && pendingSettlements.map((item) => (
+                          <Button key={item.id} className="ml-2" size="sm" disabled={approveSettlement.isPending} onClick={() => approveSettlement.mutate({ settlementId: item.id })}>Approve {money(item.amount)}</Button>
                         ))}
                       </TableCell>
                     </TableRow>
                   );
                 })
               ) : (
-                <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No credit orders found for the selected filters. Cashier creates credit orders directly from POS order creation.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={["finance", "manager"].includes(role) ? 10 : 9} className="h-24 text-center text-muted-foreground">No credit orders found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -2772,30 +3031,13 @@ export function CreditOrdersPage() {
 
       <Dialog open={!!settle} onOpenChange={(o) => !o && setSettle(null)}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Record credit payment</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Record credit payment</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="grid gap-2">
               <Label>Amount</Label>
-              <Input
-                type="number"
-                min={0}
-                max={Number(settle?.remaining_amount ?? 0)}
-                value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
-              />
+              <Input type="number" min={0} max={Number(settle?.remaining_amount ?? 0)} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
             </div>
-            <Button
-              disabled={!settle || amount <= 0 || settlement.isPending}
-              onClick={() =>
-                settle &&
-                settlement.mutate({
-                  id: settle.id,
-                  payload: { amount, payment_method: "cash" },
-                })
-              }
-            >
+            <Button disabled={!settle || amount <= 0 || settlement.isPending} onClick={() => settle && settlement.mutate({ id: settle.id, payload: { amount, payment_method: "cash" } })}>
               Send for Manager approval
             </Button>
           </div>

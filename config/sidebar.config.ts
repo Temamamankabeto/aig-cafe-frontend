@@ -83,7 +83,6 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     group("Administration", Settings, [
       { label: "Users", href: "/dashboard/users", permission: "users.read" },
       { label: "Departments", href: "/dashboard/general-admin/departments", permission: "inventory.read" },
-      { label: "Menu Management", href: "/dashboard/modules/menu", permission: "menu.read" },
       { label: "Tables & Waiters", href: "/dashboard/modules/tables", permission: "tables.read" },
     ]),
     group("Operations & Reports", BarChart3, [
@@ -103,10 +102,9 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     group("Operations & Approvals", ClipboardList, [
       { label: "Tables & Waiters", href: "/dashboard/modules/tables", permission: "tables.read" },
       { label: "Orders", href: `${orderBase}/orders`, permission: "orders.read" },
-      { label: "Kitchen Queue", href: "/dashboard/modules/kitchen/tickets" },
-      { label: "Bar Queue", href: "/dashboard/modules/bar/tickets" },
       { label: "Purchase Approvals", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
       { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
+      { label: "Meal Types", href: `${orderBase}/meal-types` },
       { label: "Credit Orders", href: `${orderBase}/credit-orders` },
       { label: "Catering Packages", href: `${orderBase}/packages` },
       { label: "Package Orders", href: `${orderBase}/package-orders` },
@@ -137,10 +135,8 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   "finance-manager": roleSidebar("finance-manager", BarChart3, [
     group("Finance Operations", CreditCard, [
       { label: "Finance Overview", href: "/dashboard/modules/finance" },
-      { label: "Bills & Refunds", href: "/dashboard/modules/bills" },
       { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
       { label: "Credit Orders", href: `${orderBase}/credit-orders` },
-      { label: "Package Orders", href: `${orderBase}/package-orders` },
     ]),
     group("Reports", BarChart3, [
       { label: "Profit & Expenses", href: "/dashboard/modules/finance/profit" },
@@ -176,6 +172,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   cashier: roleSidebar("cashier", CreditCard, [
     group("POS & Payments", ShoppingCart, [
       { label: "POS Orders", href: `${orderBase}/pos/orders`, permission: "orders.read" },
+      { label: "Pending Authorized Orders", href: `${orderBase}/credit-orders`, permission: "credit.orders.read" },
     ]),
     group("Reports", BarChart3, [
       { label: "Sales Report", href: "/dashboard/modules/reports/sold-items", permission: "reports.sales.read" },
@@ -211,8 +208,8 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
 
   customer: roleSidebar("customer", Users, [
     group("My Ordering", ShoppingCart, [
-      { label: "Browse Menu", href: "/dashboard/modules/public/menu", permission: "menu.read" },
-      { label: "My Orders", href: "/dashboard/modules/customer/orders", permission: "orders.read" },
+      { label: "Order", href: "/dashboard/customer/credit-order", permission: "orders.read" },
+      { label: "My Orders", href: "/dashboard/customer/orders", permission: "orders.read" },
     ]),
   ]),
 };

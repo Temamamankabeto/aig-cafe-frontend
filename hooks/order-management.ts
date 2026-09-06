@@ -140,12 +140,36 @@ export function useSettleCreditOrderMutation(onSuccess?: () => void) {
   });
 }
 
+export function useSettleCreditAgreementOrdersMutation(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agreementId, payload }: { agreementId: string | number; payload: any }) =>
+      orderService.settleCreditAgreementOrders(agreementId, payload),
+    onSuccess: () => {
+      invalidate(qc, queryKeys.credit.root());
+      onSuccess?.();
+    },
+  });
+}
+
 export function useApproveCreditSettlementMutation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ settlementId, note }: { settlementId: string | number; note?: string }) =>
       orderService.approveCreditSettlement(settlementId, note),
     onSuccess: () => invalidate(qc, queryKeys.credit.root()),
+  });
+}
+
+export function useApproveCreditAgreementSettlementsMutation(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agreementId, payload }: { agreementId: string | number; payload: { order_ids: Array<string | number>; note?: string | null } }) =>
+      orderService.approveCreditAgreementSettlements(agreementId, payload),
+    onSuccess: () => {
+      invalidate(qc, queryKeys.credit.root());
+      onSuccess?.();
+    },
   });
 }
 

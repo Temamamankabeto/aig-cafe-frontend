@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -69,6 +70,7 @@ import { useTablesQuery } from "@/hooks/queries/table-management";
 
 import type {
   CreditAgreement,
+  CreditAccountUser,
   Order,
   OrderItemPayload,
 } from "@/types/order-management";
@@ -122,6 +124,13 @@ function activeAgreements(account: any): CreditAgreement[] {
         );
       })
     : [];
+}
+
+function agreementUsers(agreement?: CreditAgreement | null): CreditAccountUser[] {
+  const value = agreement as any;
+  if (Array.isArray(value?.authorized_users)) return value.authorized_users;
+  if (Array.isArray(value?.authorizedUsers)) return value.authorizedUsers;
+  return [];
 }
 
 function agreementFileUrl(agreement?: CreditAgreement | null) {
@@ -215,8 +224,6 @@ function buildPrintableOrderFromSelection({
 }
 
 export default function CashierPosCreateOrderPage() {
-  const [scanText, setScanText] = useState("");
-
   const [menuSearch, setMenuSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [payload, setPayload] = useState({
@@ -231,6 +238,7 @@ export default function CashierPosCreateOrderPage() {
     meal_type: "Lunch",
     number_of_person: 1,
   });
+  const [selectedAuthorizedUserIds, setSelectedAuthorizedUserIds] = useState<string[]>([]);
   const [items, setItems] = useState<OrderItemPayload[]>([]);
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -267,6 +275,7 @@ export default function CashierPosCreateOrderPage() {
   });
   const create = useCreateOrderMutation("cashier", () => {
     setItems([]);
+    setSelectedAuthorizedUserIds([]);
     setPayload({
       table_id: "",
       waiter_id: "",
@@ -317,6 +326,10 @@ export default function CashierPosCreateOrderPage() {
       (agreement) =>
         String(agreement.id) === String(payload.credit_agreement_id),
     ) ?? agreements[0];
+  const authorizedUsers = agreementUsers(selectedAgreement).filter((user) => {
+    const active = (user as any).is_active;
+    return active === undefined || active === null || active === true || active === 1 || active === "1";
+  });
   const isCredit = payload.payment_type === "credit";
   const isBeefBased = isCredit && payload.credit_order_mode === "beef_based";
   const needsTable = payload.order_type === "dine_in";
@@ -346,49 +359,11 @@ export default function CashierPosCreateOrderPage() {
     Boolean(payload.waiter_id) &&
     (!needsTable || Boolean(payload.table_id)) &&
     (!isCredit ||
-      (Boolean(payload.credit_account_id) && Boolean(selectedAgreement))) &&
+      (Boolean(payload.credit_account_id) && Boolean(selectedAgreement) && selectedAuthorizedUserIds.length > 0)) &&
     (!isCredit ||
       payload.credit_order_mode !== "beef_based" ||
       (Boolean(payload.meal_type) && Number(payload.number_of_person) > 0)) &&
     (isBeefBased || items.length > 0);
-    function parseCreditScan(
-  input: string,
-): { credit_account_id: string; credit_account_user_id: string } | null {
-  if (!input) return null;
-
-  // Expected format:
-  // credit-account:123;authorized-user:456
-  const accountMatch = input.match(/credit-account\s*:\s*(\d+)/i);
-  const userMatch = input.match(/authorized-user\s*:\s*(\d+)/i);
-
-  if (!accountMatch || !userMatch) return null;
-
-  return {
-    credit_account_id: accountMatch[1],
-    credit_account_user_id: userMatch[1],
-  };
-}
-
- function applyScan() {
-  const parsed = parseCreditScan(scanText);
-
-  if (!parsed) {
-    toast.error(
-      "Invalid card scan. Expected credit-account:{id};authorized-user:{id}",
-    );
-    return;
-  }
-
-  setPayload((current) => ({
-    ...current,
-    payment_type: "credit",
-    credit_account_id: parsed.credit_account_id,
-    credit_account_user_id: parsed.credit_account_user_id,
-  }));
-
-  toast.success("Credit card scanned and selected");
-}
-
   function addItem(id: string | number) {
     const exists = items.find((i) => String(i.menu_item_id) === String(id));
     setItems(
@@ -434,7 +409,9 @@ export default function CashierPosCreateOrderPage() {
       number_of_person: Number(
         firstAgreement?.number_of_person ?? current.number_of_person ?? 1,
       ),
+      credit_account_user_id: "",
     }));
+    setSelectedAuthorizedUserIds([]);
   }
 
   function submit() {
@@ -452,8 +429,9 @@ export default function CashierPosCreateOrderPage() {
       payment_type: isCredit ? "credit" : "cash",
       credit_account_id: isCredit ? payload.credit_account_id : null,
       credit_account_user_id: isCredit
-        ? payload.credit_account_user_id || null
+        ? selectedAuthorizedUserIds[0] || null
         : null,
+      credit_account_user_ids: isCredit ? selectedAuthorizedUserIds : [],
       credit_agreement_id: isCredit
         ? String(selectedAgreement?.id ?? payload.credit_agreement_id)
         : null,
@@ -618,20 +596,16 @@ export default function CashierPosCreateOrderPage() {
               <Label>Payment type</Label>
               <Select
                 value={payload.payment_type}
-                onValueChange={(payment_type) =>
+                onValueChange={(payment_type) => {
+                  if (payment_type !== "credit") setSelectedAuthorizedUserIds([]);
                   setPayload({
                     ...payload,
                     payment_type,
-                    credit_account_id:
-                      payment_type === "credit"
-                        ? payload.credit_account_id
-                        : "",
-                    credit_account_user_id:
-                      payment_type === "credit"
-                        ? payload.credit_account_user_id
-                        : "",
-                  })
-                }
+                    credit_account_id: payment_type === "credit" ? payload.credit_account_id : "",
+                    credit_account_user_id: "",
+                    credit_agreement_id: payment_type === "credit" ? payload.credit_agreement_id : "",
+                  });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -699,6 +673,7 @@ export default function CashierPosCreateOrderPage() {
                       const agreement = agreements.find(
                         (row) => String(row.id) === String(credit_agreement_id),
                       );
+                      setSelectedAuthorizedUserIds([]);
                       setPayload({
                         ...payload,
                         credit_agreement_id,
@@ -740,6 +715,25 @@ export default function CashierPosCreateOrderPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>Authorized person(s)</Label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox checked={authorizedUsers.length > 0 && selectedAuthorizedUserIds.length === authorizedUsers.length} onCheckedChange={(checked) => setSelectedAuthorizedUserIds(checked ? authorizedUsers.map((user) => String(user.id)) : [])} disabled={!selectedAgreement || !authorizedUsers.length} />
+                      Select all
+                    </label>
+                  </div>
+                  <div className="overflow-hidden rounded-xl border">
+                    <Table>
+                      <TableHeader><TableRow><TableHead className="w-14">Check</TableHead><TableHead>Full name</TableHead><TableHead>Phone</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {authorizedUsers.map((user) => { const id = String(user.id); return <TableRow key={id}><TableCell><Checkbox checked={selectedAuthorizedUserIds.includes(id)} onCheckedChange={(checked) => setSelectedAuthorizedUserIds((current) => checked ? [...new Set([...current, id])] : current.filter((value) => value !== id))} /></TableCell><TableCell>{user.full_name}</TableCell><TableCell>{user.phone || "—"}</TableCell></TableRow>; })}
+                        {!authorizedUsers.length && <TableRow><TableCell colSpan={3} className="py-6 text-center text-muted-foreground">No active authorized person.</TableCell></TableRow>}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
                 {selectedAgreement && (
                   <div className="rounded-lg border bg-background p-3 text-xs">
                     <div className="flex justify-between">
@@ -755,20 +749,6 @@ export default function CashierPosCreateOrderPage() {
                     <div className="flex justify-between">
                       <span>Total agreement</span>
                       <strong>{money(selectedAgreement.total_price)}</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Agreement file</span>
-                      {agreementFileUrl(selectedAgreement) ? (
-                        <a
-                          className="text-primary underline"
-                          href={agreementFileUrl(selectedAgreement)}
-                          target="_blank"
-                        >
-                          Open file
-                        </a>
-                      ) : (
-                        <strong>—</strong>
-                      )}
                     </div>
                   </div>
                 )}
@@ -1214,7 +1194,8 @@ export default function CashierPosCreateOrderPage() {
                   <Label>Payment type</Label>
                   <Select
                     value={payload.payment_type}
-                    onValueChange={(payment_type) =>
+                    onValueChange={(payment_type) => {
+                      if (payment_type !== "credit") setSelectedAuthorizedUserIds([]);
                       setPayload((current) => ({
                         ...current,
                         payment_type,
@@ -1230,8 +1211,8 @@ export default function CashierPosCreateOrderPage() {
                           payment_type === "credit"
                             ? current.credit_agreement_id
                             : "",
-                      }))
-                    }
+                      }));
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -1249,20 +1230,7 @@ export default function CashierPosCreateOrderPage() {
               <section className="space-y-4 rounded-2xl border bg-muted/20 p-4">
                 <div>
                   <h2 className="font-semibold">Credit information</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Scan a card or select the active agreement manually.
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    value={scanText}
-                    onChange={(event) => setScanText(event.target.value)}
-                    placeholder="Scan credit card"
-                  />
-                  <Button type="button" variant="outline" onClick={applyScan}>
-                    Apply scan
-                  </Button>
+                  <p className="text-sm text-muted-foreground">Select the credit account, active agreement, and authorized person(s).</p>
                 </div>
 
                 <div className="space-y-2">
@@ -1327,6 +1295,7 @@ export default function CashierPosCreateOrderPage() {
                       const agreement = agreements.find(
                         (row) => String(row.id) === credit_agreement_id,
                       );
+                      setSelectedAuthorizedUserIds([]);
                       setPayload((current) => ({
                         ...current,
                         credit_agreement_id,
@@ -1339,6 +1308,7 @@ export default function CashierPosCreateOrderPage() {
                           agreement?.number_of_person ??
                             current.number_of_person,
                         ),
+                        credit_account_user_id: "",
                       }));
                     }}
                   >
@@ -1367,6 +1337,37 @@ export default function CashierPosCreateOrderPage() {
                   </Select>
                 </div>
 
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>Authorized person(s)</Label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={authorizedUsers.length > 0 && selectedAuthorizedUserIds.length === authorizedUsers.length}
+                        onCheckedChange={(checked) => setSelectedAuthorizedUserIds(checked ? authorizedUsers.map((user) => String(user.id)) : [])}
+                        disabled={!selectedAgreement || !authorizedUsers.length}
+                      />
+                      Select all
+                    </label>
+                  </div>
+                  <div className="overflow-hidden rounded-xl border">
+                    <Table>
+                      <TableHeader><TableRow><TableHead className="w-14">Check</TableHead><TableHead>Full name</TableHead><TableHead>Phone number</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {authorizedUsers.map((user) => {
+                          const id = String(user.id);
+                          return <TableRow key={id}>
+                            <TableCell><Checkbox checked={selectedAuthorizedUserIds.includes(id)} onCheckedChange={(checked) => setSelectedAuthorizedUserIds((current) => checked ? [...new Set([...current, id])] : current.filter((value) => value !== id))} /></TableCell>
+                            <TableCell className="font-medium">{user.full_name}</TableCell>
+                            <TableCell>{user.phone || "—"}</TableCell>
+                            <TableCell><Badge variant="outline">Active</Badge></TableCell>
+                          </TableRow>;
+                        })}
+                        {!authorizedUsers.length && <TableRow><TableCell colSpan={4} className="py-6 text-center text-muted-foreground">No active authorized person for this agreement.</TableCell></TableRow>}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
                 {selectedAgreement && (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-3 text-sm">
                     <div>
@@ -1377,17 +1378,6 @@ export default function CashierPosCreateOrderPage() {
                         {money(selectedAgreement.price_per_person)} ETB/person
                       </p>
                     </div>
-                    {agreementFileUrl(selectedAgreement) && (
-                      <Button variant="outline" size="sm" asChild>
-                        <a
-                          href={agreementFileUrl(selectedAgreement)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open agreement
-                        </a>
-                      </Button>
-                    )}
                   </div>
                 )}
 
