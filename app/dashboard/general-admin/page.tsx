@@ -162,13 +162,14 @@ export default function GeneralAdminDashboardPage() {
     );
   }
 
+  const rangeLabel = `Last ${days} days`;
   const kpis = [
-    { title: "Today's Sales", value: currency(data.kpis.today_sales), note: "Paid sales collected today", icon: Banknote },
-    { title: "Orders Today", value: number.format(data.kpis.orders_today), note: "Non-cancelled orders today", icon: ShoppingCart },
-    { title: "Average Order Value", value: currency(data.kpis.average_order_value), note: "Sales divided by today's orders", icon: ReceiptText },
-    { title: "Net Revenue", value: currency(data.kpis.net_revenue), note: "Today's sales less processed refunds", icon: WalletCards },
-    { title: "Food Cost", value: currency(data.kpis.food_cost), note: "Approved consumption cost today", icon: UtensilsCrossed },
-    { title: "Gross Profit", value: currency(data.kpis.gross_profit), note: "Net revenue less food cost", icon: TrendingUp },
+    { title: "Sales", value: currency(data.kpis.today_sales), note: `Paid sales collected · ${rangeLabel}`, icon: Banknote },
+    { title: "Orders", value: number.format(data.kpis.orders_today), note: `Non-cancelled orders · ${rangeLabel}`, icon: ShoppingCart },
+    { title: "Average Order Value", value: currency(data.kpis.average_order_value), note: `Paid sales divided by orders · ${rangeLabel}`, icon: ReceiptText },
+    { title: "Net Revenue", value: currency(data.kpis.net_revenue), note: `Paid sales less processed refunds · ${rangeLabel}`, icon: WalletCards },
+    { title: "Food Cost", value: currency(data.kpis.food_cost), note: `Approved consumption cost · ${rangeLabel}`, icon: UtensilsCrossed },
+    { title: "Gross Profit", value: currency(data.kpis.gross_profit), note: `Net revenue less food cost · ${rangeLabel}`, icon: TrendingUp },
   ];
 
   const operations = [

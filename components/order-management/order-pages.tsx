@@ -263,7 +263,7 @@ export function OrdersPage({
     [rows, filters.period, filters.date_from, filters.date_to],
   );
 
-  const confirm = useConfirmOrderMutation();
+  const confirm = useConfirmOrderMutation(scope);
   const serve = useServeOrderMutation();
   const cancel = useRequestCancelOrderMutation();
   const isVoidApprover = ["admin", "manager", "food-controller"].includes(scope);
@@ -1803,7 +1803,7 @@ export function OrderDetailPage({
   scope?: Scope;
 }) {
   const query = useOrderQuery(id, scope);
-  const confirm = useConfirmOrderMutation();
+  const confirm = useConfirmOrderMutation(scope);
   const serve = useServeOrderMutation();
   const addItemMutation = useAddOrderItemMutation();
   const updateItemMutation = useUpdateOrderItemMutation();

@@ -76,14 +76,13 @@ export const orderService = {
   return res.data;
 },
   async createOrder(payload: OrderPayload, scope: OrderApiScope = 'waiter') { const res = await api.post(baseEndpoint(scope), payload); return unwrap<ApiEnvelope<Order>>(res); },
-  async confirmOrder(id: string|number) {
-    try {
-      const res = await api.post(`/cashier/orders/${id}/confirm`);
-      return unwrap<ApiEnvelope<Order>>(res);
-    } catch (error) {
-      const res = await api.post(`/waiter/orders/${id}/confirm`);
-      return unwrap<ApiEnvelope<Order>>(res);
-    }
+  async confirmOrder(id: string | number, scope: OrderApiScope = 'waiter') {
+    const endpoint = scope === 'cashier'
+      ? `/cashier/orders/${id}/confirm`
+      : `/waiter/orders/${id}/confirm`;
+
+    const res = await api.post(endpoint);
+    return unwrap<ApiEnvelope<Order>>(res);
   },
   async serveOrder(id: string|number) { const res = await api.post(`/waiter/orders/${id}/serve`); return unwrap<ApiEnvelope<Order>>(res); },
   async requestCancel(id: string|number, reason: string) { const res = await api.post(`/waiter/orders/${id}/request-cancel`, { reason }); return unwrap<ApiEnvelope<Order>>(res); },

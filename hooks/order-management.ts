@@ -63,9 +63,12 @@ export function useCreateOrderMutation(scope: OrderScope = "waiter", onSuccess?:
   return useMutation({ mutationFn: (payload: any) => orderService.createOrder(payload, scope), onSuccess: () => { invalidate(qc, queryKeys.orders.root()); onSuccess?.(); } });
 }
 
-export function useConfirmOrderMutation() {
+export function useConfirmOrderMutation(scope: OrderScope = 'waiter') {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (id: string | number) => orderService.confirmOrder(id), onSuccess: () => invalidate(qc, queryKeys.orders.root()) });
+  return useMutation({
+    mutationFn: (id: string | number) => orderService.confirmOrder(id, scope),
+    onSuccess: () => invalidate(qc, queryKeys.orders.root()),
+  });
 }
 
 export function useServeOrderMutation() {

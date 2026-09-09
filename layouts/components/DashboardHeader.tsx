@@ -124,11 +124,8 @@ export default function DashboardHeader({
           )}
         </Button>
 
-        <div className="leading-tight">
-          <p className="text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
-            EnterPos
-          </p>
-          <h1 className="text-base font-bold tracking-wide md:text-lg">ENTERPS</h1>
+        <div className="flex items-center">
+          <h1 className="whitespace-nowrap text-base font-bold tracking-wide md:text-lg">Cafe POS</h1>
         </div>
       </div>
 
