@@ -17,7 +17,6 @@ import {
   PurchaseRequestsPage,
   OrderedItemsReceivingPage,
 } from "@/components/inventory-management/procurement-pages";
-import { RecipesTabPage } from "@/components/inventory-management/recipes-tab-page";
 import { LowStockTabPage } from "@/components/inventory-management/low-stock-tab-page";
 import {
   usePermissions,
@@ -150,12 +149,6 @@ export function InventoryWorkspaceTabsPage({
       label: "Inventory Items",
       show: can(inventoryPermissions.read),
       content: <InventoryItemsSiPage scope={resolvedScope} />,
-    },
-    {
-      value: "recipes",
-      label: "Recipes",
-      show: can(inventoryPermissions.recipesRead),
-      content: <RecipesTabPage scope={resolvedScope} />,
     },
     {
       value: "low-stock",

@@ -2,12 +2,7 @@
 // Inventory Base Types
 // ================================
 
-export type BaseUnit =
-  | "g"
-  | "kg"
-  | "ml"
-  | "L"
-  | "pcs";
+export type BaseUnit = string;
 
 export type InventoryTransactionType =
   | "in"
@@ -75,6 +70,8 @@ export interface InventoryItem {
   name: string;
   sku?: string | null;
   description?: string | null;
+  item_category_id?: number | null;
+  category?: { id: number; name: string } | null;
 
   base_unit: BaseUnit;
   unit?: BaseUnit;
@@ -97,6 +94,7 @@ export interface InventoryItemPayload {
 
   sku?: string;
   description?: string;
+  item_category_id: number;
 
   base_unit: BaseUnit;
 

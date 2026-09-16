@@ -1,12 +1,14 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { Fragment, FormEvent, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   AlertTriangle,
   BarChart3,
   Clock3,
+  ChevronDown,
+  ChevronRight,
   PackageX,
   Truck,
   ClipboardCheck,
@@ -19,6 +21,10 @@ import {
   PackageCheck,
   Plus,
   Printer,
+  Download,
+  Layers3,
+  Box,
+  Tag,
   RefreshCcw,
   Search,
   SlidersHorizontal,
@@ -97,6 +103,7 @@ import {
   useMenuItemsQuery,
   useRecipeIntegrityQuery,
   useRecipesQuery,
+  useUpdateRecipeMutation,
   useRecordWasteMutation,
   useStockStatusSummaryQuery,
   useStockValuationQuery,
@@ -865,10 +872,12 @@ function InventoryItemForm({
 }) {
   const create = useCreateInventoryItemMutation(onCancel);
   const update = useUpdateInventoryItemMutation(onCancel);
+  const categoriesQuery = useQuery({ queryKey: ["item-categories", "options"], queryFn: async () => { const response = await api.get("/item-categories/options"); return (response.data?.data ?? []) as Array<{ id: number; name: string }>; } });
   const [form, setForm] = useState({
     name: item?.name ?? "",
     sku: item?.sku ?? "",
     description: item?.description ?? "",
+    item_category_id: item?.item_category_id ? String(item.item_category_id) : "",
     base_unit: itemUnit(item),
     current_stock: String(item?.current_stock ?? 0),
     minimum_quantity: String(item?.minimum_quantity ?? 0),
@@ -882,6 +891,7 @@ function InventoryItemForm({
       name: form.name,
       sku: form.sku,
       description: form.description,
+      item_category_id: Number(form.item_category_id),
       base_unit: form.base_unit,
       current_stock: Number(form.current_stock),
       minimum_quantity: Number(form.minimum_quantity),
@@ -920,6 +930,14 @@ function InventoryItemForm({
               value={form.sku}
               onChange={(e) => setForm({ ...form, sku: e.target.value })}
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Category</Label>
+            <Select value={form.item_category_id} onValueChange={(value) => setForm({ ...form, item_category_id: value })} disabled={categoriesQuery.isLoading}>
+              <SelectTrigger><SelectValue placeholder={categoriesQuery.isLoading ? "Loading categories..." : "Select category"} /></SelectTrigger>
+              <SelectContent>{(categoriesQuery.data ?? []).map((category) => <SelectItem key={category.id} value={String(category.id)}>{category.name}</SelectItem>)}</SelectContent>
+            </Select>
+            {!categoriesQuery.isLoading && !(categoriesQuery.data ?? []).length && <p className="text-xs text-destructive">Create an item category before saving inventory items.</p>}
           </div>
           <div className="space-y-2">
             <Label>Base unit</Label>
@@ -994,7 +1012,7 @@ function InventoryItemForm({
           <div className="flex gap-2">
             <Button
               type="submit"
-              disabled={create.isPending || update.isPending}
+              disabled={create.isPending || update.isPending || !form.item_category_id}
             >
               {item ? "Update" : "Create"}
             </Button>
@@ -1548,6 +1566,17 @@ export function InventoryReportPage({
       />
     );
 
+  if (type === "valuation") {
+    return (
+      <ModernStockValuation
+        rows={valuationRows}
+        loading={valuation.isLoading}
+        totalValue={Number(totalValue)}
+        onPrint={printCurrentReport}
+      />
+    );
+  }
+
   if (type === "reports") {
     return (
       <div className="space-y-6">
@@ -1580,21 +1609,9 @@ export function InventoryReportPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title={
-          type === "low-stock"
-            ? "Low Stock"
-            : type === "valuation"
-              ? "Stock Valuation"
-              : "Recipe Integrity"
-        }
+        title={type === "low-stock" ? "Low Stock" : "Recipe Integrity"}
         description="Inventory reports generated from backend inventory report endpoints."
-        icon={
-          type === "low-stock"
-            ? AlertTriangle
-            : type === "valuation"
-              ? BarChart3
-              : CookingPot
-        }
+        icon={type === "low-stock" ? AlertTriangle : CookingPot}
       />
       <div className="flex justify-end print:hidden">
         <Button type="button" variant="outline" onClick={printCurrentReport}>
@@ -1603,11 +1620,7 @@ export function InventoryReportPage({
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>
-            {type === "valuation"
-              ? `Total value: ${formatMoney(totalValue)} ETB`
-              : "Report rows"}
-          </CardTitle>
+          <CardTitle>Report rows</CardTitle>
         </CardHeader>
         <CardContent>
           {type === "low-stock" ? (
@@ -1615,17 +1628,145 @@ export function InventoryReportPage({
               rows={lowStock.data ?? []}
               loading={lowStock.isLoading}
             />
-          ) : type === "valuation" ? (
-            <ValuationTable
-              rows={valuationRows}
-              loading={valuation.isLoading}
-            />
           ) : (
             <IntegrityTable
               rows={integrity.data?.rows ?? []}
               loading={integrity.isLoading}
+              scope={reportScope}
             />
           )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ModernStockValuation({
+  rows,
+  loading,
+  totalValue,
+  onPrint,
+}: {
+  rows: import("@/types/inventory-management").StockValuationRow[];
+  loading?: boolean;
+  totalValue: number;
+  onPrint: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [unit, setUnit] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+
+  const categories = useMemo(
+    () => Array.from(new Set(rows.map((row) => row.category?.name).filter(Boolean) as string[])).sort(),
+    [rows],
+  );
+  const units = useMemo(
+    () => Array.from(new Set(rows.map((row) => String(row.base_unit ?? row.unit ?? "pcs")))).sort(),
+    [rows],
+  );
+  const stockStatus = (row: import("@/types/inventory-management").StockValuationRow) => {
+    const current = Number(row.current_stock ?? 0);
+    const minimum = Number(row.minimum_quantity ?? 0);
+    if (current <= 0) return "out";
+    if (minimum > 0 && current <= minimum) return "low";
+    return "in";
+  };
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((row) => {
+      const matchesSearch = !q || row.name.toLowerCase().includes(q) || String(row.sku ?? "").toLowerCase().includes(q);
+      const matchesCategory = category === "all" || row.category?.name === category;
+      const matchesUnit = unit === "all" || String(row.base_unit ?? row.unit ?? "pcs") === unit;
+      const matchesStatus = status === "all" || stockStatus(row) === status;
+      return matchesSearch && matchesCategory && matchesUnit && matchesStatus;
+    });
+  }, [rows, search, category, unit, status]);
+
+  const totalItems = rows.length;
+  const totalStock = rows.reduce((sum, row) => sum + Number(row.current_stock ?? 0), 0);
+  const averageValue = totalItems ? totalValue / totalItems : 0;
+  const filteredValue = filtered.reduce((sum, row) => sum + Number(row.stock_value ?? row.value ?? 0), 0);
+  const pages = Math.max(1, Math.ceil(filtered.length / perPage));
+  const safePage = Math.min(page, pages);
+  const visibleRows = filtered.slice((safePage - 1) * perPage, safePage * perPage);
+
+  const reset = () => {
+    setSearch(""); setCategory("all"); setUnit("all"); setStatus("all"); setPage(1);
+  };
+  const exportCsv = () => {
+    const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      ["Item", "SKU", "Category", "Unit", "Stock Quantity", "Average Price (ETB)", "Total Value (ETB)", "Status"],
+      ...filtered.map((row) => [row.name, row.sku ?? "", row.category?.name ?? "Uncategorized", row.base_unit ?? row.unit ?? "pcs", row.current_stock, row.average_purchase_price ?? 0, row.stock_value ?? row.value ?? 0, stockStatus(row)]),
+    ].map((line) => line.map(escape).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url; anchor.download = "stock-valuation.csv"; anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (loading) return <p className="text-sm text-muted-foreground">Loading valuation...</p>;
+
+  const cardData = [
+    { label: "Total Items", value: formatNumber(totalItems), note: "Active inventory items", icon: Layers3, className: "border-blue-200 bg-blue-50/60" },
+    { label: "Total Stock Quantity", value: formatNumber(totalStock), note: "Across all units", icon: Box, className: "border-green-200 bg-green-50/60" },
+    { label: "Total Stock Value", value: `${formatMoney(totalValue)} ETB`, note: "Based on average cost", icon: BarChart3, className: "border-amber-200 bg-amber-50/60" },
+    { label: "Average Item Value", value: `${formatMoney(averageValue)} ETB`, note: "Per item", icon: Tag, className: "border-violet-200 bg-violet-50/60" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="flex items-center gap-3"><BarChart3 className="h-6 w-6 text-primary" /><h1 className="text-3xl font-bold tracking-tight">Stock Valuation</h1></div>
+          <p className="mt-1 text-sm text-muted-foreground">View current stock valuation based on average cost from inventory transactions.</p>
+        </div>
+        <div className="flex flex-col items-end gap-2 print:hidden">
+          <Badge variant="secondary">SI units: g / ml / pc</Badge>
+          <Button type="button" variant="outline" onClick={onPrint}><Printer className="mr-2 h-4 w-4" />Print report</Button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {cardData.map(({ label, value, note, icon: Icon, className }) => (
+          <Card key={label} className={`shadow-sm ${className}`}>
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="rounded-full bg-background/80 p-3 shadow-sm"><Icon className="h-6 w-6" /></div>
+              <div className="min-w-0"><p className="text-sm font-medium text-muted-foreground">{label}</p><p className="mt-1 truncate text-2xl font-bold">{value}</p><p className="mt-1 text-xs text-muted-foreground">{note}</p></div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="shadow-sm print:hidden">
+        <CardContent className="grid gap-3 p-4 lg:grid-cols-[2fr_1fr_1fr_1fr_auto] lg:items-end">
+          <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search item name or code..." className="pl-9" /></div>
+          <div><Label className="mb-1 block text-xs">Category</Label><Select value={category} onValueChange={(v) => { setCategory(v); setPage(1); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{categories.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label className="mb-1 block text-xs">Unit</Label><Select value={unit} onValueChange={(v) => { setUnit(v); setPage(1); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All units</SelectItem>{units.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label className="mb-1 block text-xs">Stock Status</Label><Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All items</SelectItem><SelectItem value="in">In Stock</SelectItem><SelectItem value="low">Low Stock</SelectItem><SelectItem value="out">Out of Stock</SelectItem></SelectContent></Select></div>
+          <Button type="button" onClick={reset}><RefreshCcw className="mr-2 h-4 w-4" />Reset</Button>
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between gap-4 border-b pb-4">
+          <div><CardTitle className="text-lg">Stock Valuation List</CardTitle><CardDescription>Showing {filtered.length ? (safePage - 1) * perPage + 1 : 0} to {Math.min(safePage * perPage, filtered.length)} of {filtered.length} items · Filtered value {formatMoney(filteredValue)} ETB</CardDescription></div>
+          <Button type="button" variant="outline" onClick={exportCsv} className="print:hidden"><Download className="mr-2 h-4 w-4" />Export</Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {!visibleRows.length ? <div className="p-6"><EmptyState title="No valuation rows" description="No stock valuation records match the selected filters." /></div> : (
+            <div className="overflow-x-auto"><Table><TableHeader><TableRow className="bg-muted/40"><TableHead className="w-12">#</TableHead><TableHead>Item</TableHead><TableHead>Category</TableHead><TableHead>Unit</TableHead><TableHead>Stock Quantity</TableHead><TableHead>Average Price (ETB)</TableHead><TableHead>Total Value (ETB)</TableHead><TableHead>Status</TableHead><TableHead className="w-16 text-center print:hidden">Actions</TableHead></TableRow></TableHeader><TableBody>
+              {visibleRows.map((row, index) => { const rowStatus = stockStatus(row); const unitName = String(row.base_unit ?? row.unit ?? "pcs"); return <TableRow key={row.id}><TableCell>{(safePage - 1) * perPage + index + 1}</TableCell><TableCell><p className="font-medium">{row.name}</p>{row.sku ? <p className="text-xs text-muted-foreground">{row.sku}</p> : null}</TableCell><TableCell>{row.category?.name ?? "Uncategorized"}</TableCell><TableCell>{unitName}</TableCell><TableCell>{formatBaseQuantity(row.current_stock, itemUnit(row))}</TableCell><TableCell>{formatMoney(row.average_purchase_price)}</TableCell><TableCell className="font-medium">{formatMoney(row.stock_value ?? row.value ?? 0)}</TableCell><TableCell><Badge variant={rowStatus === "out" ? "destructive" : "secondary"} className={rowStatus === "in" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100" : rowStatus === "low" ? "bg-amber-100 text-amber-700 hover:bg-amber-100" : ""}>{rowStatus === "in" ? "● In Stock" : rowStatus === "low" ? "● Low Stock" : "Out of Stock"}</Badge></TableCell><TableCell className="text-center print:hidden"><Button type="button" variant="ghost" size="icon" onClick={onPrint} aria-label={`Print ${row.name}`}><MoreHorizontal className="h-4 w-4" /></Button></TableCell></TableRow>; })}
+            </TableBody></Table></div>
+          )}
+          <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between print:hidden">
+            <div className="flex items-center gap-2 text-sm"><span>Show</span><Select value={String(perPage)} onValueChange={(v) => { setPerPage(Number(v)); setPage(1); }}><SelectTrigger className="w-20"><SelectValue /></SelectTrigger><SelectContent>{[5,10,20,50].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent></Select><span>items per page</span></div>
+            <div className="flex items-center gap-1"><Button type="button" size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>‹</Button>{Array.from({ length: Math.min(pages, 5) }, (_, i) => { const p = pages <= 5 ? i + 1 : Math.min(Math.max(safePage - 2, 1) + i, pages); return <Button key={p} type="button" size="sm" variant={p === safePage ? "default" : "outline"} onClick={() => setPage(p)}>{p}</Button>; })}<Button type="button" size="sm" variant="outline" disabled={safePage >= pages} onClick={() => setPage(safePage + 1)}>›</Button></div>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -1699,68 +1840,297 @@ function ValuationTable({
   );
 }
 
+function InlineRecipeEditor({
+  menuItemId,
+  recipe,
+  scope,
+  onClose,
+}: {
+  menuItemId: number;
+  recipe?: any;
+  scope: "admin" | "manager" | "finance" | "food-controller" | "stock-keeper" | "purchaser";
+  onClose: () => void;
+}) {
+  const itemsQuery = useInventoryItemsQuery({ per_page: 100 }, scope);
+  const createRecipe = useCreateRecipeMutation(undefined, scope);
+  const updateRecipe = useUpdateRecipeMutation(undefined, scope);
+  const stockItems = itemsQuery.data?.data ?? [];
+  const sourceItems = recipe?.items ?? recipe?.recipe_items ?? [];
+  const [inventoryItemId, setInventoryItemId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [draft, setDraft] = useState<Array<{ inventory_item_id: number; quantity: number }>>(() =>
+    sourceItems.map((item: any) => ({ inventory_item_id: Number(item.inventory_item_id), quantity: Number(item.quantity) })),
+  );
+
+  const selected = stockItems.find((item) => String(item.id) === inventoryItemId);
+  const used = new Set(draft.map((item) => item.inventory_item_id));
+  const busy = createRecipe.isPending || updateRecipe.isPending;
+
+  function addIngredient() {
+    const qty = Number(quantity);
+    if (!selected || !Number.isFinite(qty) || qty <= 0 || used.has(Number(selected.id))) return;
+    setDraft((current) => [...current, { inventory_item_id: Number(selected.id), quantity: qty }]);
+    setInventoryItemId("");
+    setQuantity("");
+  }
+
+  function save() {
+    const items = draft.filter((item) => item.quantity > 0);
+    if (!items.length) return;
+    const payload = { menu_item_id: menuItemId, items };
+    if (recipe?.id) updateRecipe.mutate({ id: recipe.id, payload }, { onSuccess: onClose });
+    else createRecipe.mutate(payload, { onSuccess: onClose });
+  }
+
+  return (
+    <div className="space-y-4 rounded-xl border bg-background p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-semibold">{recipe?.id ? "Edit recipe" : "Add recipe"}</p>
+          <p className="text-sm text-muted-foreground">Add ingredients and quantities here without leaving Recipe Integrity.</p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Close</Button>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-[1fr_180px_auto] md:items-end">
+        <div className="space-y-2">
+          <Label>Ingredient</Label>
+          <Select value={inventoryItemId} onValueChange={setInventoryItemId}>
+            <SelectTrigger><SelectValue placeholder="Select stock item" /></SelectTrigger>
+            <SelectContent>
+              {stockItems.map((item) => (
+                <SelectItem key={item.id} value={String(item.id)} disabled={used.has(Number(item.id))}>
+                  {itemName(item)} — {itemUnit(item)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Quantity {selected ? `(${itemUnit(selected)})` : ""}</Label>
+          <Input type="number" min="0.001" step="0.001" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+        </div>
+        <Button type="button" variant="outline" onClick={addIngredient} disabled={!selected || Number(quantity) <= 0}>
+          <Plus className="mr-2 h-4 w-4" /> Add ingredient
+        </Button>
+      </div>
+
+      {draft.length > 0 && (
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {draft.map((ingredient) => {
+            const item = stockItems.find((stock) => Number(stock.id) === ingredient.inventory_item_id);
+            return (
+              <div key={ingredient.inventory_item_id} className="grid grid-cols-[1fr_130px_36px] items-center gap-2 rounded-lg border p-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{itemName(item)}</p>
+                  <p className="text-xs text-muted-foreground">{itemUnit(item)}</p>
+                </div>
+                <Input
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value={String(ingredient.quantity)}
+                  onChange={(e) => {
+                    const qty = Number(e.target.value);
+                    setDraft((current) => current.map((row) => row.inventory_item_id === ingredient.inventory_item_id ? { ...row, quantity: qty } : row));
+                  }}
+                />
+                <Button type="button" variant="ghost" size="icon" onClick={() => setDraft((current) => current.filter((row) => row.inventory_item_id !== ingredient.inventory_item_id))}>
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        <Button type="button" onClick={save} disabled={busy || !draft.some((item) => item.quantity > 0)}>
+          {busy ? "Saving..." : recipe?.id ? "Update recipe" : "Save recipe"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function IntegrityTable({
   rows,
   loading,
+  scope = "food-controller",
 }: {
   rows: import("@/types/inventory-management").RecipeIntegrityRow[];
   loading?: boolean;
+  scope?: "admin" | "manager" | "finance" | "food-controller" | "stock-keeper" | "purchaser";
 }) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [editing, setEditing] = useState<Set<number>>(new Set());
+  const recipesQuery = useRecipesQuery({ per_page: 100 }, scope);
+  const recipes = recipesQuery.data?.data ?? [];
+  const pageSize = 10;
+
+  const filteredRows = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return rows;
+    return rows.filter((row) =>
+      [row.menu_item_name, row.name, row.menu_item_type, row.inventory_tracking_mode]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(keyword),
+    );
+  }, [rows, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedRows = filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  function toggleRow(menuItemId?: number) {
+    if (!menuItemId) return;
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(menuItemId)) next.delete(menuItemId);
+      else next.add(menuItemId);
+      return next;
+    });
+  }
+
+  function openRecipeEditor(menuItemId?: number) {
+    if (!menuItemId) return;
+    setExpanded((current) => new Set(current).add(menuItemId));
+    setEditing((current) => {
+      const next = new Set(current);
+      next.add(menuItemId);
+      return next;
+    });
+  }
+
+  function closeRecipeEditor(menuItemId: number) {
+    setEditing((current) => {
+      const next = new Set(current);
+      next.delete(menuItemId);
+      return next;
+    });
+  }
+
   if (loading)
-    return (
-      <p className="text-sm text-muted-foreground">
-        Loading recipe integrity...
-      </p>
-    );
+    return <p className="text-sm text-muted-foreground">Loading recipe integrity...</p>;
   if (!rows.length)
-    return (
-      <EmptyState
-        title="No recipe rows"
-        description="Recipe integrity data was not returned."
-      />
-    );
+    return <EmptyState title="No recipe rows" description="Recipe integrity data was not returned." />;
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Menu item</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Tracking</TableHead>
-          <TableHead>Recipe</TableHead>
-          <TableHead>Ingredients</TableHead>
-          <TableHead>Missing links</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row, index) => {
-          const missing = Number(row.missing_inventory_links ?? 0);
-          return (
-            <TableRow key={row.recipe_id ?? row.menu_item_id ?? index}>
-              <TableCell>
-                {row.menu_item_name ??
-                  row.name ??
-                  "Menu item #" + (row.menu_item_id ?? index + 1)}
-              </TableCell>
-              <TableCell>{row.menu_item_type ?? "—"}</TableCell>
-              <TableCell>
-                <Badge variant="outline">
-                  {row.inventory_tracking_mode ?? "—"}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                {row.recipe_id ? "#" + row.recipe_id : "No recipe"}
-              </TableCell>
-              <TableCell>{row.ingredient_count ?? 0}</TableCell>
-              <TableCell>
-                <Badge variant={missing > 0 ? "destructive" : "secondary"}>
-                  {missing}
-                </Badge>
-              </TableCell>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+            placeholder="Search menu item, type or tracking..."
+            className="pl-9"
+          />
+        </div>
+        <Badge variant="outline">{filteredRows.length} menu items</Badge>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12" />
+              <TableHead>Menu item</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Tracking</TableHead>
+              <TableHead>Recipe</TableHead>
+              <TableHead>Ingredients</TableHead>
+              <TableHead>Missing links</TableHead>
+              <TableHead className="text-right">Action</TableHead>
             </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
+          </TableHeader>
+          <TableBody>
+            {paginatedRows.map((row, index) => {
+              const missing = Number(row.missing_inventory_links ?? 0);
+              const menuId = Number(row.menu_item_id ?? 0);
+              const recipe = recipes.find((item) => Number(item.menu_item_id) === menuId);
+              const ingredients = recipe?.items ?? recipe?.recipe_items ?? [];
+              const isExpanded = expanded.has(menuId);
+              return (
+                <Fragment key={row.recipe_id ?? row.menu_item_id ?? index}>
+                  <TableRow>
+                    <TableCell>
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleRow(menuId)} disabled={!row.recipe_id} aria-label={isExpanded ? "Hide recipe" : "Show recipe"}>
+                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </Button>
+                    </TableCell>
+                    <TableCell className="font-medium">{row.menu_item_name ?? row.name ?? "Menu item #" + (row.menu_item_id ?? index + 1)}</TableCell>
+                    <TableCell>{row.menu_item_type ?? "—"}</TableCell>
+                    <TableCell><Badge variant="outline">{row.inventory_tracking_mode ?? "—"}</Badge></TableCell>
+                    <TableCell>{row.recipe_id ? "#" + row.recipe_id : "No recipe"}</TableCell>
+                    <TableCell>{row.ingredient_count ?? ingredients.length}</TableCell>
+                    <TableCell><Badge variant={missing > 0 ? "destructive" : "secondary"}>{missing}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      <Button type="button" size="sm" variant={row.recipe_id ? "outline" : "default"} onClick={() => openRecipeEditor(menuId)}>
+                        <Plus className="mr-2 h-4 w-4" />{row.recipe_id ? "Edit recipe" : "Add recipe"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {isExpanded && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="bg-muted/20 px-6 py-4">
+                        {editing.has(menuId) ? (
+                          <InlineRecipeEditor
+                            menuItemId={menuId}
+                            recipe={recipe}
+                            scope={scope}
+                            onClose={() => closeRecipeEditor(menuId)}
+                          />
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-medium">Recipe ingredients</p>
+                              <Badge variant="secondary">{ingredients.length}</Badge>
+                            </div>
+                            {recipesQuery.isLoading ? (
+                              <p className="text-sm text-muted-foreground">Loading ingredients...</p>
+                            ) : ingredients.length ? (
+                              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                {ingredients.map((ingredient, ingredientIndex) => {
+                                  const item = ingredient.inventory_item ?? ingredient.inventoryItem;
+                                  const unit = ingredient.base_unit ?? ingredient.unit ?? item?.base_unit ?? item?.unit ?? "";
+                                  return (
+                                    <div key={`${menuId}-${ingredient.inventory_item_id}-${ingredientIndex}`} className="flex items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+                                      <span className="font-medium">{itemName(item)}</span>
+                                      <span className="shrink-0 text-muted-foreground">{formatNumber(ingredient.quantity)} {unit}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No recipe ingredients were returned.</p>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+
+      {!paginatedRows.length && <EmptyState title="No matching menu items" description="Try another search term." />}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">Page {currentPage} of {totalPages} · {filteredRows.length} item{filteredRows.length === 1 ? "" : "s"}</p>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button>
+          <Button type="button" variant="outline" disabled={currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

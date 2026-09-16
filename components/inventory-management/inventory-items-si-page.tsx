@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Edit, MoreHorizontal, Package, Plus, RefreshCw, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import { formatBaseQuantity, formatMoney } from "@/lib/inventory-management";
 import { can, inventoryPermissions } from "@/lib/auth/permissions";
 import { useAdjustStockMutation, useCreateInventoryItemMutation, useDeleteInventoryItemMutation, useInventoryItemsQuery, useUpdateInventoryItemMutation } from "@/hooks/inventory-management";
 import type { BaseUnit, InventoryItem } from "@/types/inventory-management";
+import api from "@/lib/api";
 
 type Scope =
   | "admin"
@@ -24,21 +26,37 @@ type Scope =
   | "stock-keeper"
   | "purchaser";
 
-type SiUnitOption = { value: BaseUnit; label: string; hint: string };
+type UnitOption = { id: number; name: string; symbol: string };
+type ItemCategoryOption = { id: number; name: string };
 
-const SI_UNIT_OPTIONS: SiUnitOption[] = [
-  { value: "kg", label: "kg — kilogram", hint: "Mass items: flour, sugar, meat, coffee, rice, vegetables, and spices." },
-  { value: "L", label: "L — liter", hint: "Liquid items: oil, milk, water, sauces, juice, and other drinks." },
-  { value: "pcs", label: "pcs — pieces", hint: "Counted items: eggs, bottles, packs, cups, plates, cartons, and boxes." },
-];
+function normalizeUnit(value?: string | null): BaseUnit {
+  return (value ?? "").trim();
+}
 
-function normalizeSiUnit(value?: string | null): BaseUnit {
-  if (value === "kg" || value === "L" || value === "pcs") return value;
-  return "pcs";
+function useUnitOptions() {
+  return useQuery({
+    queryKey: ["unit-options"],
+    queryFn: async () => {
+      const response = await api.get("/units/options");
+      return (response.data?.data ?? []) as UnitOption[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+function useItemCategoryOptions() {
+  return useQuery({
+    queryKey: ["item-category-options"],
+    queryFn: async () => {
+      const response = await api.get("/item-categories/options");
+      return (response.data?.data ?? []) as ItemCategoryOption[];
+    },
+    staleTime: 60_000,
+  });
 }
 
 function itemUnit(item?: Pick<InventoryItem, "base_unit" | "unit"> | null): BaseUnit {
-  return normalizeSiUnit(item?.base_unit ?? item?.unit);
+  return normalizeUnit(item?.base_unit ?? item?.unit) || "pcs";
 }
 
 function itemDisplayName(item?: Pick<InventoryItem, "name" | "sku"> | null) {
@@ -80,7 +98,7 @@ function EmptyState() {
   return (
     <div className="rounded-xl border border-dashed p-8 text-center">
       <p className="font-medium">No inventory items</p>
-      <p className="mt-1 text-sm text-muted-foreground">Create the first stock item using kg, L, or pcs.</p>
+      <p className="mt-1 text-sm text-muted-foreground">Create the first stock item and select its base unit from Unit master data.</p>
     </div>
   );
 }
@@ -99,9 +117,9 @@ export function InventoryItemsSiPage({ scope = "admin" }: { scope?: Scope }) {
             <div className="rounded-xl bg-primary/10 p-2 text-primary"><Package className="h-5 w-5" /></div>
             <h1 className="text-2xl font-bold tracking-tight">Inventory Items</h1>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">Create and edit stock items using backend-supported base units.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Create and edit stock items using Unit master data.</p>
         </div>
-        <Badge variant="secondary" className="w-fit">Base units: kg / L / pcs</Badge>
+        <Badge variant="secondary" className="w-fit">Base units: Unit master data</Badge>
       </div>
 
       <Card>
@@ -191,10 +209,14 @@ function InventoryRowActions({ item, scope }: { item: InventoryItem; scope: Scop
 function InventoryItemSiForm({ item, scope, onDone }: { item: InventoryItem | null; scope: Scope; onDone: () => void }) {
   const create = useCreateInventoryItemMutation(onDone, scope);
   const update = useUpdateInventoryItemMutation(onDone, scope);
-  const initialUnit = itemUnit(item);
-  const [form, setForm] = useState({ name: item?.name ?? "", sku: item?.sku ?? "", description: item?.description ?? "", base_unit: initialUnit, current_stock: String(item?.current_stock ?? 0), minimum_quantity: String(item?.minimum_quantity ?? 0), average_purchase_price: String(item?.average_purchase_price ?? 0) });
-  const selectedUnit = normalizeSiUnit(form.base_unit);
-  const selectedHint = SI_UNIT_OPTIONS.find((unit) => unit.value === selectedUnit)?.hint;
+  const unitsQuery = useUnitOptions();
+  const categoriesQuery = useItemCategoryOptions();
+  const units = unitsQuery.data ?? [];
+  const categories = categoriesQuery.data ?? [];
+  const initialUnit = item ? itemUnit(item) : "";
+  const [form, setForm] = useState({ name: item?.name ?? "", sku: item?.sku ?? "", description: item?.description ?? "", item_category_id: item?.item_category_id ? String(item.item_category_id) : "", base_unit: initialUnit, current_stock: String(item?.current_stock ?? 0), minimum_quantity: String(item?.minimum_quantity ?? 0), average_purchase_price: String(item?.average_purchase_price ?? 0) });
+  const selectedUnit = normalizeUnit(form.base_unit);
+  const selectedUnitRecord = units.find((unit) => unit.symbol === selectedUnit);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -204,6 +226,7 @@ function InventoryItemSiForm({ item, scope, onDone }: { item: InventoryItem | nu
       name: form.name.trim(),
       sku: sku || undefined,
       description: form.description.trim(),
+      item_category_id: Number(form.item_category_id),
       base_unit: selectedUnit,
       current_stock: Number(form.current_stock || 0),
       minimum_quantity: Number(form.minimum_quantity || 0),
@@ -219,7 +242,7 @@ function InventoryItemSiForm({ item, scope, onDone }: { item: InventoryItem | nu
     <form onSubmit={submit} className="space-y-4">
       <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
         <p className="font-medium">Inventory item rule</p>
-        <p className="text-muted-foreground">Name and base unit are required. SKU can be typed manually or generated automatically.</p>
+        <p className="text-muted-foreground">Name, category and base unit are required. SKU can be typed manually or generated automatically.</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -237,14 +260,25 @@ function InventoryItemSiForm({ item, scope, onDone }: { item: InventoryItem | nu
       </div>
 
       <div className="space-y-2">
-        <Label>Base unit</Label>
-        <Select value={selectedUnit} onValueChange={(value) => setForm({ ...form, base_unit: normalizeSiUnit(value) })}>
-          <SelectTrigger><SelectValue placeholder="Select base unit" /></SelectTrigger>
+        <Label>Category</Label>
+        <Select value={form.item_category_id} onValueChange={(value) => setForm({ ...form, item_category_id: value })} disabled={categoriesQuery.isLoading}>
+          <SelectTrigger><SelectValue placeholder={categoriesQuery.isLoading ? "Loading categories..." : "Select category"} /></SelectTrigger>
           <SelectContent>
-            {SI_UNIT_OPTIONS.map((unit) => <SelectItem key={unit.value} value={unit.value}>{unit.label}</SelectItem>)}
+            {categories.map((category) => <SelectItem key={category.id} value={String(category.id)}>{category.name}</SelectItem>)}
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground">{selectedHint}</p>
+        {!categoriesQuery.isLoading && categories.length === 0 && <p className="text-xs text-destructive">Create an item category in General Admin → Item Categories before saving an inventory item.</p>}
+      </div>
+
+      <div className="space-y-2">
+        <Label>Base unit</Label>
+        <Select value={selectedUnit} onValueChange={(value) => setForm({ ...form, base_unit: normalizeUnit(value) })} disabled={unitsQuery.isLoading}>
+          <SelectTrigger><SelectValue placeholder={unitsQuery.isLoading ? "Loading units..." : "Select base unit"} /></SelectTrigger>
+          <SelectContent>
+            {units.map((unit) => <SelectItem key={unit.id} value={unit.symbol}>{unit.name} ({unit.symbol})</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">{selectedUnitRecord ? `Unit ID: ${selectedUnitRecord.id} · ${selectedUnitRecord.name} (${selectedUnitRecord.symbol})` : "Choose a unit created in General Admin → Units."}</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -266,7 +300,7 @@ function InventoryItemSiForm({ item, scope, onDone }: { item: InventoryItem | nu
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onDone}>Cancel</Button>
-        <Button type="submit" disabled={create.isPending || update.isPending}>{item ? "Update item" : "Create item"}</Button>
+        <Button type="submit" disabled={create.isPending || update.isPending || unitsQuery.isLoading || categoriesQuery.isLoading || !form.item_category_id || !selectedUnit}>{item ? "Update item" : "Create item"}</Button>
       </div>
     </form>
   );

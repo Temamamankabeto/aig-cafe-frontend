@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Edit, MoreHorizontal, Package, Plus, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,8 +17,21 @@ import { can, inventoryPermissions } from "@/lib/auth/permissions";
 import { formatBaseQuantity, formatMoney } from "@/lib/inventory-management";
 import { useCreateInventoryItemMutation, useInventoryItemsQuery, useUpdateInventoryItemMutation } from "@/hooks/inventory-management";
 import type { BaseUnit, InventoryItem } from "@/types/inventory-management";
+import api from "@/lib/api";
 
 type Scope = "admin" | "food-controller" | "stock-keeper";
+type ItemCategoryOption = { id: number; name: string };
+
+function useItemCategoryOptions() {
+  return useQuery({
+    queryKey: ["item-category-options"],
+    queryFn: async () => {
+      const response = await api.get("/item-categories/options");
+      return (response.data?.data ?? []) as ItemCategoryOption[];
+    },
+    staleTime: 60_000,
+  });
+}
 
 const unitOptions: Array<{ value: BaseUnit; label: string; help: string }> = [
   { value: "kg", label: "kg - kilograms", help: "Use kg for solid stock items like flour, meat, sugar, coffee, rice, and spices." },
@@ -163,10 +177,13 @@ function InventoryRowActions({ item, scope }: { item: InventoryItem; scope: Scop
 function InventoryItemForm({ item, scope, onCancel }: { item: InventoryItem | null; scope: Scope; onCancel: () => void }) {
   const create = useCreateInventoryItemMutation(onCancel, scope);
   const update = useUpdateInventoryItemMutation(onCancel, scope);
+  const categoriesQuery = useItemCategoryOptions();
+  const categories = categoriesQuery.data ?? [];
   const [form, setForm] = useState({
     name: item?.name ?? "",
     sku: item?.sku ?? "",
     description: item?.description ?? "",
+    item_category_id: item?.item_category_id ? String(item.item_category_id) : "",
     base_unit: itemUnit(item),
     current_stock: String(item?.current_stock ?? 0),
     minimum_quantity: String(item?.minimum_quantity ?? 0),
@@ -179,6 +196,7 @@ function InventoryItemForm({ item, scope, onCancel }: { item: InventoryItem | nu
       name: form.name,
       sku: form.sku,
       description: form.description,
+      item_category_id: Number(form.item_category_id),
       base_unit: form.base_unit as BaseUnit,
       current_stock: Number(form.current_stock || 0),
       minimum_quantity: Number(form.minimum_quantity || 0),
@@ -201,6 +219,14 @@ function InventoryItemForm({ item, scope, onCancel }: { item: InventoryItem | nu
           <div className="space-y-2"><Label>Name</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div className="space-y-2"><Label>SKU</Label><Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></div>
           <div className="space-y-2">
+            <Label>Category</Label>
+            <Select value={form.item_category_id} onValueChange={(value) => setForm({ ...form, item_category_id: value })} disabled={categoriesQuery.isLoading}>
+              <SelectTrigger><SelectValue placeholder={categoriesQuery.isLoading ? "Loading categories..." : "Select category"} /></SelectTrigger>
+              <SelectContent>{categories.map((category) => <SelectItem key={category.id} value={String(category.id)}>{category.name}</SelectItem>)}</SelectContent>
+            </Select>
+            {!categoriesQuery.isLoading && categories.length === 0 && <p className="text-xs text-destructive">Create an item category before saving an inventory item.</p>}
+          </div>
+          <div className="space-y-2">
             <Label>Base unit</Label>
             <Select value={form.base_unit} onValueChange={(value) => setForm({ ...form, base_unit: value as BaseUnit })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -214,7 +240,7 @@ function InventoryItemForm({ item, scope, onCancel }: { item: InventoryItem | nu
           </div>
           <div className="space-y-2"><Label>Average purchase price</Label><Input type="number" min="0" step="0.01" value={form.average_purchase_price} onChange={(e) => setForm({ ...form, average_purchase_price: e.target.value })} /></div>
           <div className="space-y-2"><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-          <div className="flex gap-2"><Button type="submit" disabled={create.isPending || update.isPending}>{item ? "Update" : "Create"}</Button>{item && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}</div>
+          <div className="flex gap-2"><Button type="submit" disabled={create.isPending || update.isPending || categoriesQuery.isLoading || !form.item_category_id}>{item ? "Update" : "Create"}</Button>{item && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}</div>
         </form>
       </CardContent>
     </Card>

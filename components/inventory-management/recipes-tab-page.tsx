@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ChefHat, GlassWater, PackageSearch, Plus, Search, Trash2, Utensils } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -188,6 +188,14 @@ export function RecipesTabPage({ scope = "food-controller" }: { scope?: Scope })
     const existingRecipe = recipes.find((recipe: Recipe) => String(recipe.menu_item_id) === menuId);
     setIngredients(draftIngredientsFromRecipe(existingRecipe));
   }
+
+  useEffect(() => {
+    const pendingMenuId = sessionStorage.getItem("inventory:recipe-menu-item-id");
+    if (!pendingMenuId || !menuRows.some((item) => String(item.id) === pendingMenuId)) return;
+    loadRecipeForMenu(pendingMenuId);
+    sessionStorage.removeItem("inventory:recipe-menu-item-id");
+    window.setTimeout(() => document.getElementById("recipe-editor-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }, [menuRows.length, recipes.length, stockRows.length]);
 
   function loadRecipeForEdit(recipe: Recipe) {
     setMenuItemId(String(recipe.menu_item_id));
