@@ -228,13 +228,17 @@
   animation: pulseSoft 2.4s ease-in-out infinite;
 }
 
-/* Scrollbars */
-::-webkit-scrollbar {
-  width: 0px;
-  height: 0px;
+/* Scrollbars
+ * Keep scrollbar geometry stable. Changing its width on :hover causes the
+ * viewport to repeatedly resize when the pointer sits on the right edge,
+ * which makes the whole dashboard appear to blink.
+ */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
 }
 
-:hover::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
