@@ -177,6 +177,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   cashier: roleSidebar("cashier", CreditCard, [
     group("POS & Payments", ShoppingCart, [
       { label: "POS Orders", href: `${orderBase}/pos/orders`, permission: "orders.read" },
+      { label: "Credit Order Confirmation", href: `${orderBase}/credit-orders` },
     ]),
     group("Reports", BarChart3, [
       { label: "Sales Report", href: "/dashboard/modules/reports/sold-items", permission: "reports.sales.read" },
