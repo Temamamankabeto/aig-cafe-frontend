@@ -54,11 +54,12 @@ jobs:
           test -d deploy/.next/static
 
           echo "Standalone deployment artifact verified successfully."
+
           echo "Root files:"
           find deploy -maxdepth 1 -type f -print
 
           echo "Next.js static directory:"
-          find deploy/.next/static -maxdepth 2 -type f | head -20
+          find deploy/.next/static -maxdepth 2 -type f | sed -n '1,20p'
 
           if [ -d "deploy/public" ]; then
             echo "Public directory included."
