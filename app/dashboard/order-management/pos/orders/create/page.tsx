@@ -75,6 +75,7 @@ import type {
   OrderItemPayload,
 } from "@/types/order-management";
 import { printCustomerOrderTicket } from "@/components/order-management/order-print-utils";
+import { EmployeeCardScanner } from "@/components/identity/employee-card-scanner";
 
 function money(value: unknown) {
   return Number(value ?? 0).toLocaleString(undefined, {
@@ -244,6 +245,7 @@ export default function CashierPosCreateOrderPage() {
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [billCustomerName, setBillCustomerName] = useState("Guest");
+  const [identifiedCustomer, setIdentifiedCustomer] = useState<any>(null);
 
   const menuQuery = useMenuItemsQuery(
     {
@@ -438,8 +440,9 @@ export default function CashierPosCreateOrderPage() {
       credit_order_mode: isCredit ? payload.credit_order_mode : null,
       meal_type: isCredit ? payload.meal_type : null,
       number_of_person: isCredit ? Number(payload.number_of_person) : null,
+      customer_user_id: identifiedCustomer?.user_id || null,
       customer_name:
-        selectedCreditAccount?.account_type === "single"
+        identifiedCustomer?.name || selectedCreditAccount?.account_type === "single"
           ? billCustomerName || "Guest"
           : "Guest",
       items: isBeefBased ? [] : items,
@@ -521,6 +524,8 @@ export default function CashierPosCreateOrderPage() {
           <span className="text-xs font-semibold">Open cart</span>
         </Button>
       </div>
+
+      <EmployeeCardScanner endpoint="/cashier/employee-card/verify" value={identifiedCustomer} onVerified={(person) => { setIdentifiedCustomer(person); setBillCustomerName(person.name); }} />
 
       <div className="space-y-6">
         <Card className="hidden rounded-2xl">

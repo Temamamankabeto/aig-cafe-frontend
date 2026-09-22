@@ -116,6 +116,11 @@ export const authService = {
     return normalizeLoginResponse(unwrap<LoginResponse>(response));
   },
 
+  async qrLogin(qrToken: string) {
+    const response = await api.post("/auth/qr-login", { qr_token: qrToken });
+    return normalizeLoginResponse(unwrap<LoginResponse>(response));
+  },
+
   async registerCustomer(payload: CustomerRegisterPayload) {
     const response = await api.post("/auth/register", payload);
     return unwrap<RegistrationResponse>(response);

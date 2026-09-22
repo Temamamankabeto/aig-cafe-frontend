@@ -503,12 +503,12 @@ export function OrdersPage({
                       ? `/dashboard/order-management/pos/orders/${order.id}`
                       : `/dashboard/order-management/orders/${order.id}`;
                     const waiterName =
-                      (order as any).waiter?.name ??
-                      (order as any).waiter_name ??
-                      (order as any).assigned_waiter?.name ??
-                      (order as any).created_by?.name ??
-                      (order as any).creator?.name ??
-                      "—";
+                      (order as any).order_source === "kiosk"
+                        ? "Kiosk"
+                        : (order as any).waiter?.name ??
+                          (order as any).waiter_name ??
+                          (order as any).assigned_waiter?.name ??
+                          "—";
 
                     return (
                       <TableRow key={order.id}>
@@ -975,6 +975,12 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     );
   }, [orderReports]);
 
+  // Backend total for the complete selected filter, before VAT and without
+  // service charge. Fallback keeps compatibility with older API responses.
+  const filteredSubtotal = Number(
+    (serverMeta as any)?.filtered_subtotal ?? totals.totalPrice,
+  );
+
   const currentPage = serverMeta?.current_page ?? filters.page;
   const lastPage = Math.max(serverMeta?.last_page ?? 1, 1);
   const totalOrders = serverMeta?.total ?? orderReports.length;
@@ -1048,7 +1054,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     <tr>
       <td class="label">Cash Sales</td><td class="number">${escapeHtml(money(totals.cash))}</td>
       <td class="label">Credit Sales</td><td class="number">${escapeHtml(money(totals.credit))}</td>
-      <td class="label">Total Price</td><td class="number">${escapeHtml(money(totals.totalPrice))}</td>
+      <td class="label">Total Before VAT &amp; Service Charge</td><td class="number">${escapeHtml(money(filteredSubtotal))}</td>
     </tr>
     <tr>
       <td class="label">Service Charge</td><td class="number">${escapeHtml(money(totals.serviceCharge))}</td>
@@ -1248,10 +1254,10 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
               <TableFooter>
                 <TableRow className="hover:bg-muted/50">
                   <TableCell colSpan={5} className="text-right font-bold">
-                    Total Price
+                    Total Before VAT & Service Charge
                   </TableCell>
                   <TableCell className="font-bold">
-                    {money(totals.totalPrice)}
+                    {money(filteredSubtotal)}
                   </TableCell>
                   <TableCell />
                 </TableRow>
@@ -1831,6 +1837,8 @@ export function OrderDetailPage({
     customer_tin: "",
     payment_method: "cash",
     paid_amount: "",
+    payment_reference: "",
+    balance_user_id: "",
   });
 
   const order = normalizeOrderResponse(query.data);
@@ -1871,7 +1879,8 @@ export function OrderDetailPage({
   const canManageOrderItems = !paymentLocked && (isCashierScope || (isWaiterScope && normalizedOrderStatus === "submitted"));
   const canCashierPrintTicket = isCashierScope && !paymentLocked && !mustConfirmBeforePrintOrPayment;
   const canReceiveOrderPayment = isCashierScope && !isCreditOrder && !paymentLocked && !mustConfirmBeforePrintOrPayment;
-  const canCashierConfirmOrder = isCashierScope && canConfirmOrder(status);
+  const isKioskPrepayment = String((order as any)?.order_source ?? "").toLowerCase() === "kiosk";
+  const canCashierConfirmOrder = isCashierScope && canConfirmOrder(status) && !(isKioskPrepayment && !paymentLocked);
   const canCashierServeOrder = isCashierScope && canServeOrder(status);
   const canRequestVoid = isWaiterScope && !paymentLocked && canRequestCancelOrder(status);
   const canRequestRefund = scope === "cashier" && !isCreditOrder && Boolean(refundablePayment) && refundableAmount > 0;
@@ -1987,7 +1996,9 @@ export function OrderDetailPage({
           customer_name: paymentPayload.customer_name || "Guest",
           customer_tin: paymentPayload.customer_tin || null,
           payment_method: paymentPayload.payment_method,
-          paid_amount: paymentPayload.paid_amount ? Number(paymentPayload.paid_amount) : undefined,
+          paid_amount: paymentPayload.payment_method === "balance" ? Number(orderTotal) : (paymentPayload.paid_amount ? Number(paymentPayload.paid_amount) : undefined),
+          payment_reference: paymentPayload.payment_reference || undefined,
+          balance_user_id: paymentPayload.payment_method === "balance" && paymentPayload.balance_user_id ? Number(paymentPayload.balance_user_id) : undefined,
         },
       },
       {
@@ -2258,6 +2269,7 @@ export function OrderDetailPage({
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Receive payment by order</DialogTitle>
+                <p className="text-sm text-muted-foreground">The Cashier selects the payment method when receiving payment. Kiosk customers do not choose a payment method while placing the order.</p>
               </DialogHeader>
               <div className="grid gap-4">
                 <div className="grid gap-2">
@@ -2269,18 +2281,32 @@ export function OrderDetailPage({
                   <Input value={paymentPayload.customer_tin} onChange={(event) => setPaymentPayload({ ...paymentPayload, customer_tin: event.target.value })} placeholder="Optional customer TIN" />
                 </div>
                 <div className="grid gap-2">
-                  <Label>Payment method</Label>
+                  <Label>Cashier payment method</Label>
                   <Select value={paymentPayload.payment_method} onValueChange={(payment_method) => setPaymentPayload({ ...paymentPayload, payment_method })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="cash">Cash</SelectItem>
                       <SelectItem value="card">Card</SelectItem>
-                      <SelectItem value="mobile">Mobile Money</SelectItem>
-                      <SelectItem value="transfer">Bank</SelectItem>
+                      <SelectItem value="mobile">Mobile Wallet</SelectItem>
+                      <SelectItem value="transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="balance">Balance Account</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {String(order?.payment_type ?? "cash") !== "credit" && (
+                {["card", "mobile", "transfer"].includes(paymentPayload.payment_method) && (
+                  <div className="grid gap-2">
+                    <Label>Transaction / reference number *</Label>
+                    <Input value={paymentPayload.payment_reference} onChange={(event) => setPaymentPayload({ ...paymentPayload, payment_reference: event.target.value })} placeholder="Enter verified transaction reference" />
+                  </div>
+                )}
+                {paymentPayload.payment_method === "balance" && (
+                  <div className="grid gap-2">
+                    <Label>Balance Account Owner — Employee / Customer User ID *</Label>
+                    <Input type="number" min="1" value={paymentPayload.balance_user_id} onChange={(event) => setPaymentPayload({ ...paymentPayload, balance_user_id: event.target.value })} placeholder="Enter account owner's User ID" />
+                    <p className="text-xs text-muted-foreground">Cashier-selected payment: the system checks this account first. If the balance is sufficient, the exact order total is deducted only when the Cashier confirms payment. Insufficient balance leaves the order unpaid.</p>
+                  </div>
+                )}
+                {String(order?.payment_type ?? "cash") !== "credit" && paymentPayload.payment_method !== "balance" && (
                   <div className="grid gap-2">
                     <Label>Paid amount</Label>
                     <Input
@@ -2294,8 +2320,8 @@ export function OrderDetailPage({
                 )}
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-                  <Button disabled={receivePaymentMutation.isPending || !canReceiveOrderPayment} onClick={handleReceivePayment}>
-                    {receivePaymentMutation.isPending ? "Processing..." : "Receive payment"}
+                  <Button disabled={receivePaymentMutation.isPending || !canReceiveOrderPayment || (["card", "mobile", "transfer"].includes(paymentPayload.payment_method) && !paymentPayload.payment_reference.trim()) || (paymentPayload.payment_method === "balance" && !paymentPayload.balance_user_id)} onClick={handleReceivePayment}>
+                    {receivePaymentMutation.isPending ? "Processing..." : paymentPayload.payment_method === "balance" ? "Confirm & Deduct Balance" : "Receive payment"}
                   </Button>
                 </div>
               </div>

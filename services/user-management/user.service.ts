@@ -80,6 +80,26 @@ export const userService = {
     return unwrap<ApiEnvelope<UserItem>>(response);
   },
 
+  async issueQrCard(id: number | string) {
+    const response = await api.post(`/admin/users/${id}/qr-card`);
+    return unwrap<ApiEnvelope<{ user_id: number | string; name: string; qr_token: string; issued_at?: string }>>(response).data;
+  },
+
+  async revokeQrCard(id: number | string) {
+    const response = await api.delete(`/admin/users/${id}/qr-card`);
+    return unwrap<ApiEnvelope<{ id: number | string }>>(response);
+  },
+
+  async balanceAccount(id: number | string) {
+    const response = await api.get(`/admin/users/${id}/balance-account`);
+    return unwrap<ApiEnvelope<{ user_id: number | string; balance: number; is_active: boolean }>>(response).data;
+  },
+
+  async adjustBalanceAccount(id: number | string, amount: number, note?: string) {
+    const response = await api.post(`/admin/users/${id}/balance-account/adjust`, { amount, note });
+    return unwrap<ApiEnvelope<{ user_id: number | string; balance: number; is_active: boolean }>>(response).data;
+  },
+
   async rolesLite() {
     const response = await api.get("/admin/users/roles-lite");
     const body = response.data;
