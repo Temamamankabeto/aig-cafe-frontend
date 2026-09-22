@@ -128,7 +128,7 @@ function mutationErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-export default function UsersPage() {
+export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<UserStatus | "all">("all");
   const [page, setPage] = useState(1);
@@ -142,11 +142,12 @@ export default function UsersPage() {
   const [newPassword, setNewPassword] = useState("");
 
   const params = useMemo(
-    () => ({ search, status, page, per_page: 10, audience: "staff" as const }),
+    () => ({ search, status, page, per_page: 10, audience: "customer" as const }),
     [search, status, page],
   );
   const usersQuery = useUsersQuery(params);
-  const roles = useUserRolesLiteQuery().data ?? [];
+  const allRoles = useUserRolesLiteQuery().data ?? [];
+  const roles = allRoles.filter((role) => String(role?.name ?? "").toLowerCase() === "customer");
   const departmentsQuery = useQuery({
     queryKey: ["admin", "departments", "active", "user-assignment"],
     queryFn: () => inventoryService.departments({ is_active: true, per_page: 200 }, "admin"),
@@ -275,27 +276,27 @@ if (!parsed.success) {
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-bold">Users</h1>
+          <h1 className="text-2xl font-bold">Customers</h1>
           <p className="text-muted-foreground">
-            Manage users, roles, status, and password resets.
+            Manage cafeteria customers, account status, QR cards, balances, and password resets.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" /> New User
+        <Button onClick={() => { setCreateForm({ ...emptyCreate, role: "customer" }); setCreateOpen(true); }}>
+          <Plus className="mr-2 h-4 w-4" /> New Customer
         </Button>
       </div>
 
       <div className="flex w-fit items-center gap-1 rounded-xl border bg-card p-1">
         <Button asChild size="sm" className="rounded-lg">
-          <Link href="/dashboard/users">
-            Users
+          <Link href="/dashboard/customers">
+            Customers
             <Badge variant="secondary" className="ml-2">
               {meta?.total ?? rows.length}
             </Badge>
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost" className="rounded-lg">
-          <Link href="/dashboard/customers">Customers</Link>
+          <Link href="/dashboard/users">Users</Link>
         </Button>
         <Button asChild size="sm" variant="ghost" className="rounded-lg">
           <Link href="/dashboard/users/roles">
@@ -310,7 +311,7 @@ if (!parsed.success) {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <CardTitle>User List</CardTitle>
+            <CardTitle>Customer List</CardTitle>
             <div className="flex flex-col gap-2 md:flex-row">
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -349,7 +350,7 @@ if (!parsed.success) {
         <CardContent>
           {usersQuery.isLoading ? (
             <div className="flex justify-center py-10 text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading users...
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading customers...
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -372,7 +373,7 @@ if (!parsed.success) {
                         colSpan={7}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        No users found
+                        No customers found
                       </TableCell>
                     </TableRow>
                   ) : (

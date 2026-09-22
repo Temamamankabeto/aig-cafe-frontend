@@ -8,6 +8,7 @@ const permissionByPath = [
   { path: "/dashboard/users/permissions", permission: "permissions.read" },
   { path: "/dashboard/users/roles", permission: "roles.read" },
   { path: "/dashboard/users", permission: "users.read" },
+  { path: "/dashboard/customers", permission: "users.read" },
 ];
 
 export default function UserManagementRouteGuard({ children }: { children: ReactNode }) {

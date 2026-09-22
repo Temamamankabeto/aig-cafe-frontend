@@ -82,6 +82,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   "general-admin": roleSidebar("general-admin", ShieldCheck, [
     group("Administration", Settings, [
       { label: "Users", href: "/dashboard/users", permission: "users.read" },
+      { label: "Customers", href: "/dashboard/customers", permission: "users.read" },
       { label: "Departments", href: "/dashboard/general-admin/departments", permission: "inventory.read" },
       { label: "Units", href: "/dashboard/general-admin/units", permission: "inventory.read" },
       { label: "Item Categories", href: "/dashboard/general-admin/item-categories", permission: "inventory.read" },

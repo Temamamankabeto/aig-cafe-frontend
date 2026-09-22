@@ -686,6 +686,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     {
       page: filters.page,
       per_page: filters.per_page,
+      report: 1,
       payment_type: filters.payment_type === "all" ? undefined : filters.payment_type,
       waiter_id: filters.waiter_id === "all" ? undefined : filters.waiter_id,
       period: filters.period,
@@ -980,6 +981,17 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
   const filteredSubtotal = Number(
     (serverMeta as any)?.filtered_subtotal ?? totals.totalPrice,
   );
+  const categoryTotals = Array.isArray((serverMeta as any)?.category_totals)
+    ? (serverMeta as any).category_totals.map((row: any) => ({
+        category: String(row?.category ?? "Uncategorized"),
+        totalQuantity: Number(row?.total_quantity ?? 0),
+        totalAmount: Number(row?.total_amount ?? 0),
+      }))
+    : [];
+  const filteredQuantity = Number(
+    (serverMeta as any)?.filtered_quantity ??
+      categoryTotals.reduce((sum: number, row: any) => sum + row.totalQuantity, 0),
+  );
 
   const currentPage = serverMeta?.current_page ?? filters.page;
   const lastPage = Math.max(serverMeta?.last_page ?? 1, 1);
@@ -1009,6 +1021,18 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
             <td class="number">${escapeHtml(money(item.unit))}</td>
             <td class="number">${escapeHtml(money(item.total))}</td>
             <td>${escapeHtml(item.paymentMethod)}</td>
+          </tr>`,
+      )
+      .join("");
+
+    const categoryRows = categoryTotals
+      .map(
+        (row: any, index: number) => `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${escapeHtml(row.category)}</td>
+            <td class="number">${escapeHtml(row.totalQuantity)}</td>
+            <td class="number">${escapeHtml(money(row.totalAmount))}</td>
           </tr>`,
       )
       .join("");
@@ -1044,6 +1068,8 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     .report th, .report td { border: 1px solid #9ca3af; padding: 6px 7px; vertical-align: top; }
     .report th { background: #e5e7eb; text-align: left; font-weight: 700; }
     .number { text-align: right; white-space: nowrap; }
+    .category-title { margin: 16px 0 6px; font-size: 13px; font-weight: 700; }
+    .category-total td { font-weight: 700; background: #fff7ed; }
     .footer { margin-top: 10px; color: #6b7280; font-size: 10px; }
   </style>
 </head>
@@ -1076,6 +1102,18 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     </thead>
     <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:20px">No sold items found.</td></tr>'}</tbody>
   </table>
+  <div class="category-title">Sales Total by Category (Before VAT &amp; Service Charge)</div>
+  <table class="report">
+    <thead><tr><th>#</th><th>Category</th><th class="number">Total Quantity</th><th class="number">Total Amount (ETB)</th></tr></thead>
+    <tbody>
+      ${categoryRows || '<tr><td colspan="4" style="text-align:center;padding:12px">No category totals found.</td></tr>'}
+      <tr class="category-total">
+        <td colspan="2">Grand Total (Before VAT &amp; Service Charge)</td>
+        <td class="number">${escapeHtml(filteredQuantity)}</td>
+        <td class="number">${escapeHtml(money(filteredSubtotal))}</td>
+      </tr>
+    </tbody>
+  </table>
   <div class="footer">Printed ${escapeHtml(new Date().toLocaleString())} · ${aggregatedItems.length} grouped sold items</div>
   <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); };<\/script>
 </body>
@@ -1091,7 +1129,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
             <div>
               <CardTitle>Sold items / sales report</CardTitle>
               <CardDescription>
-                Filter sold order items by period, payment method, and waiter.
+                Filter sold order items by period, payment method, and waiter. (Paid orders only)
               </CardDescription>
             </div>
             <Button
@@ -1251,19 +1289,53 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
                   </TableRow>
                 )}
               </TableBody>
-              <TableFooter>
-                <TableRow className="hover:bg-muted/50">
-                  <TableCell colSpan={5} className="text-right font-bold">
-                    Total Before VAT & Service Charge
-                  </TableCell>
-                  <TableCell className="font-bold">
-                    {money(filteredSubtotal)}
-                  </TableCell>
-                  <TableCell />
-                </TableRow>
-              </TableFooter>
             </Table>
           </div>
+
+          <details open className="overflow-hidden rounded-xl border">
+            <summary className="cursor-pointer select-none px-4 py-3 font-semibold">
+              Sales Total by Category (Before VAT & Service Charge)
+            </summary>
+            <div className="overflow-x-auto border-t">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-14">#</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead className="text-right">Total Quantity</TableHead>
+                    <TableHead className="text-right">Total Amount (ETB)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {categoryTotals.length ? (
+                    categoryTotals.map((row: any, index: number) => (
+                      <TableRow key={`${row.category}-${index}`}>
+                        <TableCell>{index + 1}</TableCell>
+                        <TableCell className="font-medium">{row.category}</TableCell>
+                        <TableCell className="text-right font-medium">{row.totalQuantity}</TableCell>
+                        <TableCell className="text-right font-medium">{money(row.totalAmount)}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
+                        No paid category totals found.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+                <TableFooter>
+                  <TableRow>
+                    <TableCell colSpan={2} className="font-bold">
+                      Grand Total (Before VAT & Service Charge)
+                    </TableCell>
+                    <TableCell className="text-right font-bold">{filteredQuantity}</TableCell>
+                    <TableCell className="text-right font-bold">{money(filteredSubtotal)}</TableCell>
+                  </TableRow>
+                </TableFooter>
+              </Table>
+            </div>
+          </details>
 
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">

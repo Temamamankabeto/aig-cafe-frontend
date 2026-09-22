@@ -45,6 +45,7 @@ export type UserListParams = {
   status?: UserStatus | "all";
   page?: number;
   per_page?: number;
+  audience?: "staff" | "customer";
 };
 
 export type CreateUserPayload = {

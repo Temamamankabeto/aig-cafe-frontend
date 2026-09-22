@@ -7,6 +7,7 @@ import { authService } from "@/services/auth/auth.service";
 
 const tabs = [
   { label: "Users", href: "/dashboard/users", match: "/dashboard/users", permission: "users.read" },
+  { label: "Customers", href: "/dashboard/customers", match: "/dashboard/customers", permission: "users.read" },
   { label: "Roles", href: "/dashboard/users/roles", match: "/dashboard/users/roles", permission: "roles.read" },
 ];
 

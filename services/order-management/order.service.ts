@@ -3,7 +3,21 @@ import type { ApiEnvelope, Id, CreditAccount, CreditAccountPayload, CreditAgreem
 
 function clean(params: Record<string, unknown> = {}) { const out: Record<string, unknown> = {}; Object.entries(params).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '' && v !== 'all') out[k] = v; }); return out; }
 function rows<T>(body: any): T[] { const d = body?.data; if (Array.isArray(body)) return body; if (Array.isArray(d)) return d; if (Array.isArray(d?.data)) return d.data; return []; }
-function meta(body: any, len: number) { const src = body?.data && !Array.isArray(body.data) ? body.data : body; const m = body?.meta ?? src ?? {}; return { current_page: Number(m.current_page ?? 1), per_page: Number(m.per_page ?? len ?? 10), total: Number(m.total ?? len ?? 0), last_page: Number(m.last_page ?? 1) }; }
+function meta(body: any, len: number) {
+  const src = body?.data && !Array.isArray(body.data) ? body.data : body;
+  const m = body?.meta ?? src ?? {};
+
+  // Preserve report-specific metadata returned by the backend
+  // (e.g. category_totals, filtered_subtotal, filtered_quantity)
+  // while still normalizing the standard pagination values.
+  return {
+    ...m,
+    current_page: Number(m.current_page ?? 1),
+    per_page: Number(m.per_page ?? len ?? 10),
+    total: Number(m.total ?? len ?? 0),
+    last_page: Number(m.last_page ?? 1),
+  };
+}
 function page<T>(body: any): PaginatedResponse<T> { const data = rows<T>(body); return { success: body?.success, message: body?.message, data, meta: meta(body, data.length) }; }
 type OrderApiScope = 'waiter'|'cashier'|'public'|'admin'|'manager'|'food-controller';
 
