@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { authService } from "@/services/auth/auth.service";
 import { orderService } from "@/services/order-management/order.service";
 import { useEffect, useMemo, useState } from "react";
@@ -246,13 +247,23 @@ export function OrdersPage({
     order_type: "all",
     payment_status: "all",
     payment_type: "all",
+    waiter_id: "all",
     period: "today" as Period,
     date_from: "",
     date_to: "",
   });
 
+  const router = useRouter();
+  const waitersQuery = useWaitersLiteQuery("", scope === "cashier");
+  const waiters = waitersQuery.data ?? [];
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Array<string | number>>([]);
+  const receivePaymentMutation = useReceiveOrderPaymentMutation();
+
   const query = useOrdersQuery(
-    filters,
+    {
+      ...filters,
+      waiter_id: filters.waiter_id === "all" ? undefined : filters.waiter_id,
+    },
     scope,
   );
   const rows = query.data?.data ?? [];
@@ -287,8 +298,60 @@ export function OrdersPage({
     [filteredRows, report],
   );
 
-  const updateFilter = (patch: Partial<typeof filters>) =>
+  const updateFilter = (patch: Partial<typeof filters>) => {
+    setSelectedOrderIds([]);
     setFilters((current) => ({ ...current, ...patch, page: 1 }));
+  };
+
+  const selectableRows = filteredRows.filter((order: Order) =>
+    String((order as any).payment_status ?? order.bill?.status ?? "unpaid").toLowerCase() !== "paid",
+  );
+  const allVisibleSelected = selectableRows.length > 0 && selectableRows.every((order) => selectedOrderIds.includes(order.id));
+
+  const toggleOrderSelection = (id: string | number, checked: boolean) => {
+    setSelectedOrderIds((current) => checked
+      ? Array.from(new Set([...current, id]))
+      : current.filter((value) => value !== id));
+  };
+
+  const toggleFilteredSelection = (checked: boolean) => {
+    const visibleIds = selectableRows.map((order) => order.id);
+    setSelectedOrderIds((current) => checked
+      ? Array.from(new Set([...current, ...visibleIds]))
+      : current.filter((id) => !visibleIds.includes(id)));
+  };
+
+  const markSelectedAsPaid = async (ids = selectedOrderIds) => {
+    const selected = filteredRows.filter((order) => ids.includes(order.id));
+    const eligible = selected.filter((order) =>
+      String((order as any).payment_status ?? order.bill?.status ?? "unpaid").toLowerCase() !== "paid" &&
+      String(order.status ?? "").toLowerCase() === "confirmed",
+    );
+    if (!eligible.length) {
+      toast.error("Select at least one confirmed unpaid order.");
+      return;
+    }
+    try {
+      for (const order of eligible) {
+        await receivePaymentMutation.mutateAsync({
+          orderId: order.id,
+          payload: { payment_method: "cash", paid_amount: Number(order.total ?? order.total_amount ?? 0) },
+        });
+      }
+      toast.success(`${eligible.length} order${eligible.length === 1 ? "" : "s"} marked as paid.`);
+      setSelectedOrderIds([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to mark selected orders as paid.");
+    }
+  };
+
+  const receiveSelectedPayment = () => {
+    if (selectedOrderIds.length !== 1) {
+      toast.error("Select one order to receive payment with payment details.");
+      return;
+    }
+    router.push(`/dashboard/order-management/pos/orders/${selectedOrderIds[0]}`);
+  };
 
   return (
     <div className="space-y-6">
@@ -420,6 +483,25 @@ export function OrdersPage({
               </SelectContent>
             </Select>
 
+            {scope === "cashier" && (
+              <Select
+                value={filters.waiter_id}
+                onValueChange={(waiter_id) => updateFilter({ waiter_id })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All waiters" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All waiters</SelectItem>
+                  {waiters.map((waiter: any) => (
+                    <SelectItem key={String(waiter.id)} value={String(waiter.id)}>
+                      {waiter.name ?? `Waiter #${waiter.id}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
             <Select
               value={filters.payment_status}
               onValueChange={(payment_status) =>
@@ -473,10 +555,32 @@ export function OrdersPage({
         </CardHeader>
 
         <CardContent>
+          {scope === "cashier" && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 p-3">
+              <div className="flex items-center gap-2 pr-2 text-sm font-medium">
+                <Checkbox checked={allVisibleSelected} onCheckedChange={(checked) => toggleFilteredSelection(Boolean(checked))} />
+                <span>{selectedOrderIds.length ? `${selectedOrderIds.length} orders selected` : "Select filtered unpaid orders"}</span>
+              </div>
+              <Button size="sm" disabled={!selectedOrderIds.length || receivePaymentMutation.isPending} onClick={() => markSelectedAsPaid()}>
+                Mark as Paid
+              </Button>
+              <Button size="sm" variant="outline" disabled={selectedOrderIds.length !== 1} onClick={receiveSelectedPayment}>
+                Receive Payment
+              </Button>
+              {selectedOrderIds.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => setSelectedOrderIds([])}>Clear Selection</Button>
+              )}
+            </div>
+          )}
           <div className="overflow-x-auto rounded-xl border">
             <Table>
               <TableHeader>
                 <TableRow>
+                  {scope === "cashier" && (
+                    <TableHead className="w-10">
+                      <Checkbox checked={allVisibleSelected} onCheckedChange={(checked) => toggleFilteredSelection(Boolean(checked))} aria-label="Select filtered unpaid orders" />
+                    </TableHead>
+                  )}
                   <TableHead>Order number</TableHead>
                   <TableHead>Order type</TableHead>
                   <TableHead>Table</TableHead>
@@ -491,7 +595,7 @@ export function OrdersPage({
                 {query.isLoading ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={scope === "cashier" ? 9 : 8}
                       className="h-24 text-center text-muted-foreground"
                     >
                       Loading orders...
@@ -512,6 +616,16 @@ export function OrdersPage({
 
                     return (
                       <TableRow key={order.id}>
+                        {scope === "cashier" && (
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedOrderIds.includes(order.id)}
+                              disabled={String((order as any).payment_status ?? order.bill?.status ?? "unpaid").toLowerCase() === "paid"}
+                              onCheckedChange={(checked) => toggleOrderSelection(order.id, Boolean(checked))}
+                              aria-label={`Select ${order.order_number ?? `order ${order.id}`}`}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell>
                           <Link href={detailHref} className="font-medium hover:underline">
                             {order.order_number ?? `#${order.id}`}
@@ -550,8 +664,20 @@ export function OrdersPage({
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem asChild>
-                                <Link href={detailHref}>Detail</Link>
+                                <Link href={detailHref}>View Detail</Link>
                               </DropdownMenuItem>
+                              {scope === "cashier" && String((order as any).payment_status ?? order.bill?.status ?? "unpaid").toLowerCase() !== "paid" && (
+                                <>
+                                  <DropdownMenuItem asChild>
+                                    <Link href={detailHref}>Receive Payment</Link>
+                                  </DropdownMenuItem>
+                                  {String(order.status ?? "").toLowerCase() === "confirmed" && (
+                                    <DropdownMenuItem onSelect={() => markSelectedAsPaid([order.id])}>
+                                      Mark as Paid
+                                    </DropdownMenuItem>
+                                  )}
+                                </>
+                              )}
                               {isVoidApprover && order.status === "cancel_requested" && (
                                 <DropdownMenuItem
                                   onSelect={() => {
@@ -571,7 +697,7 @@ export function OrdersPage({
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={scope === "cashier" ? 9 : 8}
                       className="h-24 text-center text-muted-foreground"
                     >
                       No orders found.

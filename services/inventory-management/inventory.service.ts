@@ -362,7 +362,16 @@ export const inventoryService = {
 
   async requestableStockItems() {
     const response = await api.get("/inventory-custody/request-items");
-    return extractRows<InventoryItem>(response.data);
+
+    // The custody endpoint uses the standard { success, message, data, meta }
+    // envelope. Keep this tolerant of direct arrays and nested paginator/list
+    // shapes so the Request Stock selector always receives InventoryItem[].
+    return extractListFromKeys<InventoryItem>(response.data, [
+      "items",
+      "inventory_items",
+      "inventoryItems",
+      "rows",
+    ]);
   },
 
   async myStockoutRequests() {
