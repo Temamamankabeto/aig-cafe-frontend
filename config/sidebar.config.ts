@@ -139,6 +139,9 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   "finance-manager": roleSidebar("finance-manager", BarChart3, [
     group("Finance Operations", CreditCard, [
       { label: "Finance Overview", href: "/dashboard/modules/finance" },
+      { label: "Accounting Foundation", href: "/dashboard/modules/finance/accounting" },
+      { label: "Journal Engine", href: "/dashboard/modules/finance/journal-engine" },
+      { label: "Financial Statements", href: "/dashboard/modules/finance/financial-statements" },
       { label: "Bills & Refunds", href: "/dashboard/modules/bills" },
       { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
       { label: "Credit Orders", href: `${orderBase}/credit-orders` },
