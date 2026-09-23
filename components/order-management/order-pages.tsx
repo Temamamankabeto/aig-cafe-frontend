@@ -2046,7 +2046,11 @@ export function OrderDetailPage({
   const paymentStatus = (order as any)?.payment_status ?? bill?.status ?? "unpaid";
   const isCreditOrder = String((order as any)?.payment_type ?? "cash").toLowerCase() === "credit";
   const payments = [...((order as any)?.payments ?? []), ...(bill?.payments ?? [])];
-  const refundablePayment = payments.find((payment: any) => ["paid", "refunded"].includes(String(payment?.status).toLowerCase()));
+  // Cashier order detail exposes the authoritative direct payment explicitly.
+  // Fall back to the normal payment collections for bill-backed/newer orders.
+  const refundablePayment =
+    (order as any)?.refundable_payment ??
+    payments.find((payment: any) => ["paid", "refunded"].includes(String(payment?.status).toLowerCase()));
   const reservedRefund = (refundablePayment?.refund_requests ?? []).filter((refund: any) => ["requested", "approved", "processed"].includes(refund.status)).reduce((sum: number, refund: any) => sum + Number(refund.amount ?? 0), 0);
   const refundableAmount = Math.max(0, Number(refundablePayment?.amount ?? 0) - reservedRefund);
   const orderType = String(order?.order_type ?? "—").replace(/_/g, " ");
