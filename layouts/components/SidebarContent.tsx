@@ -11,6 +11,7 @@ import { procurementService } from "@/services/inventory-management/procurement.
 import { filterSidebarByPermissions, getSidebarForRole, type SidebarChildItem } from "@/config/sidebar.config";
 import { normalizeRole } from "@/config/dashboard.config";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 type SidebarContentProps = {
   collapsed?: boolean;
@@ -27,6 +28,7 @@ function MiniBadge({ value }: { value?: number }) {
 
 export default function SidebarContent({ collapsed = false }: SidebarContentProps) {
   const pathname = usePathname();
+  const { t } = useLanguage();
   const user = authService.getStoredUser();
   const roles = authService.getStoredRoles();
   const role = roles[0] ?? user?.role;
@@ -99,14 +101,14 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
                     "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary hover:text-sidebar-primary-foreground",
                 )}
               >
-                <span className="truncate">{child.label}</span>
+                <span className="truncate">{t(child.label)}</span>
               </Link>
             ) : (
-              <span className="min-w-0 flex-1 px-3 py-2 text-sm font-medium">{child.label}</span>
+              <span className="min-w-0 flex-1 px-3 py-2 text-sm font-medium">{t(child.label)}</span>
             )}
             <button
               type="button"
-              aria-label={`${isNestedOpen ? "Collapse" : "Expand"} ${child.label}`}
+              aria-label={`${isNestedOpen ? t("Collapse sidebar") : t("Expand sidebar")} ${t(child.label)}`}
               onClick={() => toggleMenu(menuKey)}
               className="rounded-lg p-2 text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             >
@@ -141,7 +143,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
             "bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary hover:text-sidebar-primary-foreground",
         )}
       >
-        <span className="truncate">{child.label}</span>
+        <span className="truncate">{t(child.label)}</span>
         <MiniBadge value={badgeValue} />
       </Link>
     );
@@ -161,7 +163,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-bold">AIG Cafeteria</h1>
+              <h1 className="truncate text-sm font-bold">{t("AIG Cafeteria")}</h1>
               <p className="truncate text-xs text-sidebar-foreground/70">{roleSidebar.title}</p>
             </div>
           )}
@@ -173,7 +175,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
           <div key={section.title} className="space-y-2">
             {!collapsed && (
               <p className="px-2 text-xs font-semibold uppercase tracking-wide text-sidebar-foreground/50">
-                {section.title}
+                {t(section.title)}
               </p>
             )}
 
@@ -204,7 +206,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
                         <Icon className="h-4 w-4 shrink-0" />
                         {!collapsed && (
                           <>
-                            <span className="flex-1 text-left">{item.label}</span>
+                            <span className="flex-1 text-left">{t(item.label)}</span>
                             <ChevronRight
                               className={cn(
                                 "h-3 w-3 shrink-0 transition-transform duration-200",
@@ -237,7 +239,7 @@ export default function SidebarContent({ collapsed = false }: SidebarContentProp
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
-                    {!collapsed && <span>{item.label}</span>}
+                    {!collapsed && <span>{t(item.label)}</span>}
                   </Link>
                 );
               })}

@@ -27,6 +27,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import api from "@/lib/api";
 import { authService, type AuthUser } from "@/services/auth/auth.service";
 import SidebarContent from "@/layouts/components/SidebarContent";
+import LanguageSwitcher from "@/components/i18n/language-switcher";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 type DashboardHeaderProps = {
   sidebarCollapsed?: boolean;
@@ -38,6 +40,7 @@ export default function DashboardHeader({
   onToggleSidebar,
 }: DashboardHeaderProps) {
   const router = useRouter();
+  const { t } = useLanguage();
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [readyOrdersCount, setReadyOrdersCount] = useState(0);
@@ -81,7 +84,7 @@ export default function DashboardHeader({
     // Clear local authentication synchronously and leave the protected area
     // immediately. Server-side token revocation continues in the background.
     authService.logout();
-    toast.success("Logged out successfully");
+    toast.success(t("Logged out successfully"));
 
     if (typeof window !== "undefined") {
       window.location.replace("/login");
@@ -115,7 +118,7 @@ export default function DashboardHeader({
           size="icon"
           className="hidden md:inline-flex"
           onClick={onToggleSidebar}
-          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={sidebarCollapsed ? t("Expand sidebar") : t("Collapse sidebar")}
         >
           {sidebarCollapsed ? (
             <PanelLeftOpen className="h-4 w-4" />
@@ -136,7 +139,7 @@ export default function DashboardHeader({
             variant="outline"
             size="icon"
             className="relative"
-            aria-label="Ready order notifications"
+            aria-label={t("Ready order notifications")}
             onClick={() => router.push("/dashboard/order-management/orders?status=ready")}
           >
             <Bell className="h-4 w-4" />
@@ -148,6 +151,8 @@ export default function DashboardHeader({
           </Button>
         )}
 
+      <LanguageSwitcher />
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" className="gap-2">
@@ -158,23 +163,23 @@ export default function DashboardHeader({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>
-            <span className="block text-xs text-muted-foreground">User name</span>
+            <span className="block text-xs text-muted-foreground">{t("User name")}</span>
             <span className="block truncate text-sm font-semibold">{displayName}</span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={openProfile}>
             <UserRound className="mr-2 h-4 w-4" />
-            Profile
+            {t("Profile")}
           </DropdownMenuItem>
           {user?.department_id && (
             <DropdownMenuItem onClick={() => router.push("/dashboard/my-department-stock")}>
               <PackageCheck className="mr-2 h-4 w-4" />
-              My Department Stock
+              {t("My Department Stock")}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem variant="destructive" onClick={logout}>
             <LogOut className="mr-2 h-4 w-4" />
-            Logout
+            {t("Logout")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

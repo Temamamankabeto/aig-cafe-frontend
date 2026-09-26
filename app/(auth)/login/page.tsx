@@ -6,8 +6,11 @@ import { toast } from "sonner";
 import { authService } from "@/services/auth/auth.service";
 import { getDashboardForRole } from "@/config/dashboard.config";
 import { BrowserQRCodeReader, IScannerControls } from "@zxing/browser";
+import LanguageSwitcher from "@/components/i18n/language-switcher";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 export default function LoginPage() {
+  const { t } = useLanguage();
   const router = useRouter();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -101,7 +104,14 @@ export default function LoginPage() {
     }
   }
 
+  function continueWithGoogle() {
+    if (loading) return;
+    window.location.assign(authService.googleLoginUrl());
+  }
+
   return (
+    <>
+      <div className="fixed right-4 top-4 z-[100]"><LanguageSwitcher /></div>
     <main className="relative min-h-[100dvh] overflow-x-hidden bg-[#041a38] text-white">
       {/* Desktop/tablet reference layout: preserve the existing exact design. */}
       <div className="absolute inset-0 hidden md:block">
@@ -123,7 +133,7 @@ export default function LoginPage() {
             style={{ left: "37.20%", top: "52.99%", width: "25.55%", height: "6.61%" }}
           />
 
-          <label htmlFor="password-desktop" className="sr-only">Password</label>
+          <label htmlFor="password-desktop" className="sr-only">{t("Password")}</label>
           <input
             id="password-desktop" name="password" type="password" value={password}
             onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password"
@@ -135,14 +145,18 @@ export default function LoginPage() {
           <button type="submit" disabled={loading} aria-label={loading ? "Signing in" : "Login"}
             className="absolute cursor-pointer rounded-full bg-transparent outline-none transition focus-visible:ring-2 focus-visible:ring-[#ffd166] focus-visible:ring-offset-2 focus-visible:ring-offset-[#061a38] disabled:cursor-wait"
             style={{ left: "37.20%", top: "69.97%", width: "25.55%", height: "7.10%" }}>
-            <span className="sr-only">{loading ? "Signing in…" : "Login"}</span>
+            <span className="sr-only">{loading ? t("Signing in…") : t("Login")}</span>
           </button>
           <a href="/forgot-password" aria-label="Forgot Password?" className="absolute rounded outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]" style={{ left: "40.32%", top: "79.63%", width: "7.15%", height: "3.55%" }}><span className="sr-only">Forgot Password?</span></a>
           <a href="/register" aria-label="Create customer account" className="absolute rounded outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]" style={{ left: "49.90%", top: "79.63%", width: "11.55%", height: "3.55%" }}><span className="sr-only">Create customer account</span></a>
           <div className="absolute flex items-center justify-center gap-3" style={{ left: "37.20%", top: "85%", width: "25.55%" }}>
             <button type="button" onClick={() => setQrOpen(true)} className="h-10 flex-1 rounded-lg border border-[#f4be4b]/60 bg-[#071f42]/90 px-3 text-sm font-semibold text-[#f4be4b] shadow-lg transition hover:bg-[#0a2850]">QR Card Login</button>
-            <button type="button" onClick={() => router.push("/kiosk")} className="h-10 flex-1 rounded-lg bg-[#f4be4b] px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-[#ffd166] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">Kiosk Ordering</button>
+            <button type="button" onClick={() => router.push("/kiosk")} className="h-10 flex-1 rounded-lg bg-[#f4be4b] px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-[#ffd166] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">{t("Kiosk Ordering")}</button>
           </div>
+          <button type="button" onClick={continueWithGoogle} disabled={loading} aria-label="Continue with Google" className="absolute flex items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/95 px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166] disabled:opacity-60" style={{ left: "37.20%", top: "91%", width: "25.55%", height: "4.5%" }}>
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[13px] font-extrabold text-[#4285F4]">G</span>
+            Continue with Google
+          </button>
         </form>
       </div>
 
@@ -154,7 +168,7 @@ export default function LoginPage() {
               <span className="text-2xl font-extrabold text-[#f4be4b]">CP</span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight">Cafe POS</h1>
-            <p className="mt-2 text-sm text-slate-300">Sign in to continue to your dashboard</p>
+            <p className="mt-2 text-sm text-slate-300">{t("Sign in to continue to your dashboard")}</p>
           </div>
 
           <form onSubmit={onSubmit} noValidate className="rounded-[28px] border border-white/10 bg-[#071f42]/95 p-5 shadow-2xl shadow-black/30 backdrop-blur sm:p-7">
@@ -166,20 +180,22 @@ export default function LoginPage() {
                   className="h-12 w-full rounded-xl border border-white/15 bg-[#041a38] px-4 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-[#f4be4b] focus:ring-2 focus:ring-[#f4be4b]/20 disabled:opacity-70" />
               </div>
               <div>
-                <label htmlFor="password-mobile" className="mb-2 block text-sm font-semibold text-slate-100">Password</label>
+                <label htmlFor="password-mobile" className="mb-2 block text-sm font-semibold text-slate-100">{t("Password")}</label>
                 <input id="password-mobile" name="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" disabled={loading}
                   placeholder="Enter password"
                   className="h-12 w-full rounded-xl border border-white/15 bg-[#041a38] px-4 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-[#f4be4b] focus:ring-2 focus:ring-[#f4be4b]/20 disabled:opacity-70" />
               </div>
               <button type="submit" disabled={loading}
                 className="flex h-12 w-full items-center justify-center rounded-xl bg-[#f4be4b] px-4 text-base font-bold text-[#041a38] shadow-lg shadow-[#f4be4b]/10 transition active:scale-[0.99] disabled:cursor-wait disabled:opacity-70">
-                {loading ? "Signing in…" : "Login"}
+                {loading ? t("Signing in…") : t("Login")}
               </button>
-              <button type="button" onClick={() => setQrOpen(true)} className="flex h-12 w-full items-center justify-center rounded-xl border border-[#f4be4b]/60 bg-transparent px-4 text-base font-bold text-[#f4be4b]">Scan QR Card</button>
-              <button type="button" onClick={() => router.push("/kiosk")} className="flex h-12 w-full items-center justify-center rounded-xl bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99]">Kiosk Ordering</button>
+              <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-slate-500"><span className="h-px flex-1 bg-white/10" />or<span className="h-px flex-1 bg-white/10" /></div>
+              <button type="button" onClick={continueWithGoogle} disabled={loading} className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99] disabled:opacity-60"><span className="flex h-6 w-6 items-center justify-center rounded-full text-base font-extrabold text-[#4285F4]">G</span>{t("Continue with Google")}</button>
+              <button type="button" onClick={() => setQrOpen(true)} className="flex h-12 w-full items-center justify-center rounded-xl border border-[#f4be4b]/60 bg-transparent px-4 text-base font-bold text-[#f4be4b]">{t("Scan QR Card")}</button>
+              <button type="button" onClick={() => router.push("/kiosk")} className="flex h-12 w-full items-center justify-center rounded-xl bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99]">{t("Kiosk Ordering")}</button>
             </div>
             <div className="mt-5 flex flex-col items-center justify-center gap-3 text-sm min-[390px]:flex-row min-[390px]:gap-5">
-              <a href="/forgot-password" className="font-medium text-[#f4be4b] hover:underline">Forgot Password?</a>
+              <a href="/forgot-password" className="font-medium text-[#f4be4b] hover:underline">{t("Forgot Password?")}</a>
               <span className="hidden text-white/20 min-[390px]:inline">•</span>
               <a href="/register" className="font-medium text-slate-200 hover:text-[#f4be4b]">Create customer account</a>
             </div>
@@ -197,11 +213,12 @@ export default function LoginPage() {
               <button type="button" onClick={scanning ? stopScanner : startScanner} className="h-11 w-full rounded-xl bg-[#f4be4b] font-bold text-[#041a38]">{scanning ? "Stop Camera" : "Scan with Camera"}</button>
               <div className="flex items-center gap-3 text-xs text-slate-400"><span className="h-px flex-1 bg-white/10"/>OR<span className="h-px flex-1 bg-white/10"/></div>
               <input value={qrToken} onChange={(e) => setQrToken(e.target.value)} placeholder="Enter secure QR card code (not User ID)" className="h-11 w-full rounded-xl border border-white/15 bg-[#041a38] px-3 text-white outline-none focus:border-[#f4be4b]" />
-              <button type="button" disabled={!qrToken.trim() || loading} onClick={() => submitQr()} className="h-11 w-full rounded-xl border border-white/15 font-semibold disabled:opacity-50">{loading ? "Signing in…" : "Login with QR Card"}</button>
+              <button type="button" disabled={!qrToken.trim() || loading} onClick={() => submitQr()} className="h-11 w-full rounded-xl border border-white/15 font-semibold disabled:opacity-50">{loading ? t("Signing in…") : t("Login with QR Card")}</button>
             </div>
           </div>
         </div>
       )}
     </main>
+    </>
   );
 }

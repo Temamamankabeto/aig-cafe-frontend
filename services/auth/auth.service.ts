@@ -116,6 +116,13 @@ export const authService = {
     return normalizeLoginResponse(unwrap<LoginResponse>(response));
   },
 
+
+  googleLoginUrl() {
+    const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "https://api.aigcafe.com/api";
+    const base = rawApiUrl.replace(/\/+$/, "").endsWith("/api") ? rawApiUrl.replace(/\/+$/, "") : `${rawApiUrl.replace(/\/+$/, "")}/api`;
+    return `${base}/auth/google/redirect`;
+  },
+
   async qrLogin(qrToken: string) {
     const response = await api.post("/auth/qr-login", { qr_token: qrToken });
     return normalizeLoginResponse(unwrap<LoginResponse>(response));
