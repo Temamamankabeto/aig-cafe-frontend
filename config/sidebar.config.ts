@@ -103,22 +103,41 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
   ]),
 
   "cafeteria-manager": roleSidebar("cafeteria-manager", Store, [
-    group("Operations & Approvals", ClipboardList, [
-      { label: "Tables & Waiters", href: "/dashboard/modules/tables", permission: "tables.read" },
-      { label: "Orders", href: `${orderBase}/orders`, permission: "orders.read" },
-      { label: "Kitchen Queue", href: "/dashboard/modules/kitchen/tickets" },
-      { label: "Bar Queue", href: "/dashboard/modules/bar/tickets" },
-      { label: "Purchase Approvals", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
-      { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
-      { label: "Credit Orders", href: `${orderBase}/credit-orders` },
-      { label: "Catering Packages", href: `${orderBase}/packages` },
-      { label: "Package Orders", href: `${orderBase}/package-orders` },
+    group("Operations", ClipboardList, [
+      { label: "Order Monitoring", href: `${orderBase}/orders`, permission: "orders.read" },
+      { label: "Staff", href: "/dashboard/users", permission: "users.read" },
+      { label: "Menu & Meal Types", href: `${orderBase}/meal-types`, permission: "menu.read" },
+      { label: "Customer Complaints", href: "/dashboard/cafeteria-manager/customer-complaints" },
     ]),
-    group("Inventory & Reports", BarChart3, [
-      { label: "Inventory Overview", href: "/dashboard/cafeteria-manager/inventory", permission: "inventory.read" },
-      { label: "Low-stock Items", href: "/dashboard/inventory/low-stock", permission: "inventory.read" },
-      { label: "Stock Valuation", href: "/dashboard/inventory/valuation", permission: "inventory.read" },
-      ...salesReportChildren,
+    group("Approvals", ShieldCheck, [
+      { label: "Credit Order Approvals", href: `${orderBase}/credit-orders` },
+      { label: "Discount & Void Approvals", href: `${orderBase}/orders`, permission: "orders.read" },
+      { label: "Refund Approvals", href: "/dashboard/modules/bills" },
+      { label: "Purchase Request Approvals", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
+      { label: "Stock Adjustment Approvals", href: "/dashboard/inventory/adjustments", permission: "inventory.read" },
+      { label: "Stock-out Approvals", href: "/dashboard/cafeteria-manager/stockout-approvals", permission: "inventory.read" },
+    ]),
+    group("Control & Monitoring", BarChart3, [
+      { label: "Inventory Monitoring", href: "/dashboard/cafeteria-manager/inventory", permission: "inventory.read" },
+      { label: "Procurement Monitoring", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
+      { label: "Cashier Sessions", href: "/dashboard/modules/cash-shifts" },
+      { label: "Credit Accounts", href: `${orderBase}/credit-accounts`, permission: "credit.accounts.read" },
+    ]),
+    group("Management Reports", BarChart3, [
+      { label: "Sales Performance", href: "/dashboard/cafeteria-manager/reports/sales-performance" },
+      { label: "Food & Beverage Cost", href: "/dashboard/cafeteria-manager/reports/food-beverage-cost" },
+      { label: "Prime Cost", href: "/dashboard/cafeteria-manager/reports/prime-cost" },
+      { label: "Inventory Variance", href: "/dashboard/cafeteria-manager/reports/inventory-variance" },
+      { label: "Procurement Summary", href: "/dashboard/cafeteria-manager/reports/procurement-summary" },
+      { label: "Credit / AR Summary", href: "/dashboard/cafeteria-manager/reports/credit-ar-summary" },
+      { label: "P&L Summary", href: "/dashboard/cafeteria-manager/reports/pnl-summary" },
+      { label: "Cash Position", href: "/dashboard/cafeteria-manager/reports/cash-position" },
+      { label: "Exception Reports", href: "/dashboard/cafeteria-manager/reports/exception-reports" },
+      { label: "Complaint Report", href: "/dashboard/cafeteria-manager/reports/complaints" },
+    ]),
+    group("Administration", Settings, [
+      { label: "Audit Logs", href: "/dashboard/audit-logs", permission: "audit.read" },
+      { label: "Operational Settings", href: "/dashboard/cafeteria-manager" },
     ]),
   ]),
 
@@ -220,6 +239,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     group("My Ordering", ShoppingCart, [
       { label: "Order", href: "/dashboard/customer/credit-order", permission: "orders.read" },
       { label: "My Orders", href: "/dashboard/customer/orders", permission: "orders.read" },
+      { label: "My Complaints", href: "/dashboard/customer/complaints" },
     ]),
   ]),
 };

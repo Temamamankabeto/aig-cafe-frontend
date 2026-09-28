@@ -82,6 +82,7 @@ import type {
   UserStatus,
 } from "@/types/user-management/user.type";
 import { inventoryService } from "@/services/inventory-management/inventory.service";
+import { can, getStoredRoles } from "@/lib/auth/permissions";
 import type { Department } from "@/types/inventory-management";
 
 const emptyCreate: CreateUserPayload = {
@@ -146,10 +147,16 @@ export default function UsersPage() {
     [search, status, page],
   );
   const usersQuery = useUsersQuery(params);
-  const roles = useUserRolesLiteQuery().data ?? [];
+  const currentRoles = getStoredRoles().map((role) => role.toLowerCase().replace(/[\s-]+/g, "_"));
+  const isManager = currentRoles.includes("manager") || currentRoles.includes("cafeteria_manager");
+  const rolesQuery = useUserRolesLiteQuery();
+  const roles = rolesQuery.data ?? [];
   const departmentsQuery = useQuery({
-    queryKey: ["admin", "departments", "active", "user-assignment"],
-    queryFn: () => inventoryService.departments({ is_active: true, per_page: 200 }, "admin"),
+    queryKey: [isManager ? "manager" : "admin", "departments", "active", "user-assignment"],
+    queryFn: () => inventoryService.departments(
+      { is_active: true, per_page: 200 },
+      isManager ? "manager" : "admin",
+    ),
   });
   const departments = departmentsQuery.data?.data ?? [];
   const createUser = useCreateUserMutation();
@@ -157,6 +164,7 @@ export default function UsersPage() {
   const toggleUser = useToggleUserMutation();
   const removeUser = useDeleteUserMutation();
   const resetPassword = useResetUserPasswordMutation();
+  const canDeleteUsers = can("users.delete") && !isManager;
 
   const rows = usersQuery.data?.data ?? [];
   const meta = usersQuery.data?.meta;
@@ -294,17 +302,21 @@ if (!parsed.success) {
             </Badge>
           </Link>
         </Button>
-        <Button asChild size="sm" variant="ghost" className="rounded-lg">
-          <Link href="/dashboard/customers">Customers</Link>
-        </Button>
-        <Button asChild size="sm" variant="ghost" className="rounded-lg">
-          <Link href="/dashboard/users/roles">
-            Roles
-            <Badge variant="outline" className="ml-2">
-              {roles.length}
-            </Badge>
-          </Link>
-        </Button>
+        {!isManager && (
+          <>
+            <Button asChild size="sm" variant="ghost" className="rounded-lg">
+              <Link href="/dashboard/customers">Customers</Link>
+            </Button>
+            <Button asChild size="sm" variant="ghost" className="rounded-lg">
+              <Link href="/dashboard/users/roles">
+                Roles
+                <Badge variant="outline" className="ml-2">
+                  {roles.length}
+                </Badge>
+              </Link>
+            </Button>
+          </>
+        )}
       </div>
 
       <Card>
@@ -441,15 +453,19 @@ if (!parsed.success) {
                                 <KeyRound className="mr-2 h-4 w-4" /> Reset
                                 password
                               </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onSelect={() =>
-                                  setTimeout(() => setDeleteUser(user), 0)
-                                }
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" /> Delete
-                              </DropdownMenuItem>
+                              {canDeleteUsers && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onSelect={() =>
+                                      setTimeout(() => setDeleteUser(user), 0)
+                                    }
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

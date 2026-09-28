@@ -100,7 +100,11 @@ export const orderService = {
   },
   async serveOrder(id: string|number) { const res = await api.post(`/waiter/orders/${id}/serve`); return unwrap<ApiEnvelope<Order>>(res); },
   async requestCancel(id: string|number, reason: string) { const res = await api.post(`/waiter/orders/${id}/request-cancel`, { reason }); return unwrap<ApiEnvelope<Order>>(res); },
-  async approveVoid(id: string|number, reason: string|undefined, scope: 'admin'|'manager'|'food-controller') {
+  async validateVoid(id: string|number, reason: string) {
+    const res = await api.post(`/food-controller/orders/${id}/validate-cancel`, { reason });
+    return unwrap<ApiEnvelope<Order>>(res);
+  },
+  async approveVoid(id: string|number, reason: string|undefined, scope: 'admin'|'manager') {
     const res = await api.post(`${baseEndpoint(scope)}/${id}/approve-cancel`, { reason });
     return unwrap<ApiEnvelope<Order>>(res);
   },

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { authService } from "@/services/auth/auth.service";
+import { getStoredRoles } from "@/lib/auth/permissions";
 
 const tabs = [
   { label: "Users", href: "/dashboard/users", match: "/dashboard/users", permission: "users.read" },
@@ -14,8 +15,13 @@ const tabs = [
 export default function UserManagementTabs() {
   const pathname = usePathname();
   const permissions = authService.getStoredPermissions();
+  const roles = getStoredRoles().map((role) => role.toLowerCase().replace(/[\s-]+/g, "_"));
+  const isManager = roles.includes("manager") || roles.includes("cafeteria_manager");
 
-  const visibleTabs = tabs.filter((tab) => permissions.includes(tab.permission));
+  const visibleTabs = tabs.filter((tab) => {
+    if (isManager && tab.label !== "Users") return false;
+    return permissions.includes(tab.permission);
+  });
 
   return (
     <div className="flex flex-wrap gap-2 border-b pb-3">

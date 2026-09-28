@@ -1,542 +1,62 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  Banknote,
-  BarChart3,
-  Boxes,
-  ChefHat,
-  CircleDollarSign,
-  ClipboardList,
-  PackageSearch,
-  RefreshCcw,
-  ShoppingCart,
-  Table2,
-  TrendingUp,
-  Users,
-  Wine,
-} from "lucide-react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import type { ReactNode } from "react";
+import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import api, { unwrap } from "@/lib/api";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 
-type ManagerData = {
-  kpis: {
-    today_sales: number;
-    orders_today: number;
-    occupied_tables: number;
-    total_tables: number;
-    average_order_value: number;
-    net_sales: number;
-    consumption_cost: number;
-    expenses: number;
-    net_profit: number;
-    profit_margin: number;
-  };
-  sales_trend: Array<{ hour: string; sales: number; orders: number }>;
-  live_order_status: {
-    new: number;
-    preparing: number;
-    ready: number;
-    served: number;
-    cancelled: number;
-    active: number;
-  };
-  operations: {
-    tables: { occupied: number; available: number; reserved: number };
-    kitchen: { queued: number; ready: number; avg_minutes: number };
-    bar: { queued: number; ready: number; avg_minutes: number };
-    cashiers: { open: number; closed: number; sales: number };
-  };
-  table_status: Array<{ id: number; table_number: string; status: string }>;
-  requires_attention: Array<{ label: string; count: number; is_money?: boolean }>;
-  kitchen_bar_performance: Array<{
-    area: string;
-    active: number;
-    avg_prep: number;
-    delayed: number;
-    completed: number;
-    performance: number;
-  }>;
-  top_selling_items: Array<{
-    id: number;
-    name: string;
-    category: string;
-    quantity: number;
-    revenue: number;
-    consumption: number;
-    margin: number;
-  }>;
-  inventory: {
-    low_stock: number;
-    out_of_stock: number;
-    stock_value: number;
-    today_consumption: number;
-  };
-  procurement: {
-    pending_pr: number;
-    approved_pr: number;
-    open_po: number;
-    awaiting_delivery: number;
-    pending_grn: number;
-  };
-  cashier_sessions: Array<{
-    id: number;
-    cashier: string;
-    session: string;
-    sales: number;
-    expected_cash: number;
-    variance: number;
-    status: string;
-  }>;
-  staff_performance: Array<{ id: number; name: string; orders: number; sales: number }>;
-  shift_status: Record<string, { active: number; total: number }>;
-  financial_summary: {
-    gross_sales: number;
-    refunds: number;
-    net_sales: number;
-    consumption_cost: number;
-    gross_profit: number;
-    expenses: number;
-    net_profit: number;
-    profit_margin: number;
-  };
+type Num = number | null;
+type Report = {
+  report_date:string;
+  executive:{sales:number;sales_change:Num;sales_ly:number;covers:number;covers_change:Num;covers_ly:number;average_check:number;average_check_change:Num;average_check_ly:number;food_cost_pct:Num;beverage_cost_pct:Num;prime_cost_pct:Num};
+  daily_flash:Record<string,Num>;
+  sales_performance:Array<{date:string;label:string;sales:number;sales_ly:number;covers:number}>;
+  food_beverage_cost:Record<string,Num>;
+  prime_cost:Record<string,Num>;
+  inventory:Record<string,Num>;
+  procurement:Record<string,Num>;
+  credit_ar:Record<string,Num>;
+  pnl:Record<string,Num>;
+  cash_position:Record<string,Num>;
+  exceptions:Array<{area:string;issue:string;impact:Num;action:string}>;
 };
 
-type Response = { success: boolean; data?: ManagerData; message?: string };
+const money=(v:Num)=>v==null?"—":`ETB ${new Intl.NumberFormat("en-US",{maximumFractionDigits:0}).format(v)}`;
+const num=(v:Num)=>v==null?"—":new Intl.NumberFormat("en-US",{maximumFractionDigits:0}).format(v);
+const pct=(v:Num)=>v==null?"—":`${v.toFixed(1)}%`;
+const change=(v:Num)=>v==null?"—":`${v>=0?"▲":"▼"} ${Math.abs(v).toFixed(1)}%`;
+const tone=(v:Num)=>v==null?"text-muted-foreground":"text-primary";
 
-function extractNestedData(value: unknown): any {
-  let current: any = value;
-
-  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth += 1) {
-    if (current.kpis || current.summary) {
-      return current;
-    }
-
-    current = current.data;
-  }
-
-  return undefined;
+function Section({title,children,className=""}:{title:string;children:ReactNode;className?:string}){
+ return <section className={`overflow-hidden rounded-md border border-border bg-background text-foreground shadow-sm ${className}`}><div className="border-b border-border bg-background px-3 py-2 text-[13px] font-extrabold tracking-wide text-foreground">{title}</div><div className="p-3">{children}</div></section>
 }
+function Row({label,value,bold=false}:{label:string;value:React.ReactNode;bold?:boolean}){return <div className={`flex items-center justify-between gap-3 border-b border-primary/15 py-1.5 text-[11px] last:border-0 ${bold?"font-bold":""}`}><span className="text-muted-foreground">{label}</span><span className="text-right text-foreground">{value}</span></div>}
+function Donut({value,label}:{value:Num;label:string}){const safe=Math.max(0,Math.min(100,value??0));return <div className="relative mx-auto h-28 w-28 rounded-full" style={{background:`conic-gradient(var(--primary) ${safe*3.6}deg,var(--primary) 0)`}}><div className="absolute inset-[13px] flex flex-col items-center justify-center rounded-full bg-background"><b className="text-xl text-foreground">{value==null?"—":pct(value)}</b><span className="text-[9px] text-muted-foreground">{label}</span></div></div>}
 
-function normalizeManagerData(value: unknown): ManagerData | undefined {
-  const payload = extractNestedData(value);
+export default function ManagerDashboard(){
+ const q=useQuery({queryKey:["manager-management-report-v2"],queryFn:async()=>unwrap<{data:Report}>(await api.get("/manager/dashboard")).data,refetchInterval:60000});
+ const d=q.data;
+ if(q.isLoading)return <div className="p-8 text-sm">Loading management report…</div>;
+ if(q.isError||!d)return <div className="p-8 text-sm text-destructive">Unable to load the manager management report.</div>;
+ const e=d.executive, f=d.daily_flash, p=d.pnl, c=d.cash_position;
+ return <div className="min-h-screen bg-background p-2 text-foreground md:p-3">
+  <div className="grid grid-cols-1 gap-2 xl:grid-cols-12">
+   <Section title="EXECUTIVE DASHBOARD" className="xl:col-span-3"><div className="grid grid-cols-3 divide-x text-center"><Kpi label="SALES" value={money(e.sales)} delta={e.sales_change} sub={`vs LY ${money(e.sales_ly)}`}/><Kpi label="COVERS" value={num(e.covers)} delta={e.covers_change} sub={`vs LY ${num(e.covers_ly)}`}/><Kpi label="AVERAGE CHECK" value={money(e.average_check)} delta={e.average_check_change} sub={`vs LY ${money(e.average_check_ly)}`}/></div><div className="my-4 border-t"/><div className="grid grid-cols-3 divide-x text-center"><Mini label="FOOD COST %" value={pct(e.food_cost_pct)}/><Mini label="BEVERAGE COST %" value={pct(e.beverage_cost_pct)}/><Mini label="PRIME COST %" value={pct(e.prime_cost_pct)}/></div></Section>
+   <Section title="DAILY FLASH REPORT" className="xl:col-span-3"><Row label="Date" value={d.report_date}/><Row label="Total Covers" value={num(f.covers)}/><Row label="Total Sales" value={money(f.sales)}/><Row label="Average Check" value={money(f.average_check)}/><Row label="Food Cost %" value={pct(f.food_cost_pct)}/><Row label="Beverage Cost %" value={pct(f.beverage_cost_pct)}/><Row label="Prime Cost %" value={pct(f.prime_cost_pct)}/><Row label="Discounts/Voids/Refunds" value={money(f.discounts_voids_refunds)}/><Row label="Cash Variance" value={money(f.cash_variance)}/></Section>
+   <Section title="SALES PERFORMANCE" className="xl:col-span-3"><div className="h-44"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={d.sales_performance}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="label" tick={{fontSize:9}}/><YAxis tick={{fontSize:9}} width={42}/><Tooltip formatter={(v:any)=>money(Number(v))}/><Area type="monotone" dataKey="sales" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.12} name="Sales"/><Line type="monotone" dataKey="sales_ly" stroke="var(--primary)" strokeDasharray="5 4" name="Sales LY"/></ComposedChart></ResponsiveContainer></div><div className="mt-2 grid grid-cols-3 bg-primary/10 px-2 py-1 text-[10px] font-bold"><span>Period</span><span className="text-right">Sales</span><span className="text-right">Covers</span></div>{d.sales_performance.slice(-3).map(x=><div key={x.date} className="grid grid-cols-3 border-b px-2 py-1 text-[10px]"><span>{x.label}</span><span className="text-right">{money(x.sales)}</span><span className="text-right">{x.covers}</span></div>)}</Section>
+   <Section title="FOOD & BEVERAGE COST" className="xl:col-span-3"><div className="grid grid-cols-2 gap-3"><Donut value={d.food_beverage_cost.food_cost_pct} label="Food Cost"/><Donut value={d.food_beverage_cost.beverage_cost_pct} label="Beverage Cost"/></div><div className="mt-2"><Row label="Food Cost" value={money(d.food_beverage_cost.food_cost)}/><Row label="Beverage Cost" value={money(d.food_beverage_cost.beverage_cost)}/><Row label="Net Sales" value={money(f.net_sales)}/></div></Section>
 
-  if (!payload) {
-    return undefined;
-  }
+   <Section title="PRIME COST" className="xl:col-span-3"><div className="grid grid-cols-[110px_1fr] items-center gap-3"><Donut value={d.prime_cost.prime_cost_pct} label="Prime Cost"/><div><Row label="Food Cost" value={money(d.prime_cost.food_cost)}/><Row label="Beverage Cost" value={money(d.prime_cost.beverage_cost)}/><Row label="Labor Cost" value={money(d.prime_cost.labor_cost)}/><Row label="Other" value={money(d.prime_cost.other_cost)}/></div></div></Section>
+   <Section title="INVENTORY VARIANCE" className="xl:col-span-3"><TableHead cols={["Measure","Value"]}/><Row label="Stock Value" value={money(d.inventory.stock_value)}/><Row label="Today's Consumption" value={money(d.inventory.today_consumption)}/><Row label="Low Stock Items" value={num(d.inventory.low_stock)}/><Row label="Out of Stock" value={num(d.inventory.out_of_stock)}/><Row label="Book vs Actual Variance" value={money(d.inventory.book_vs_actual_variance)} bold/></Section>
+   <Section title="PROCUREMENT SUMMARY" className="xl:col-span-3"><Row label="Total Purchases" value={money(d.procurement.total_purchases)}/><Row label="Number of POs" value={num(d.procurement.number_of_pos)}/><Row label="Pending Approval" value={num(d.procurement.pending_approval)}/><Row label="Open PO" value={num(d.procurement.open_po)}/><Row label="Awaiting Delivery" value={num(d.procurement.awaiting_delivery)}/><Row label="Price Variance" value={pct(d.procurement.price_variance_pct)}/></Section>
+   <Section title="CREDIT / AR SUMMARY" className="xl:col-span-3"><Row label="Total AR" value={money(d.credit_ar.total_ar)} bold/><Row label="Current (0–30)" value={money(d.credit_ar.current)}/><Row label="31–60 Days" value={money(d.credit_ar.days_31_60)}/><Row label="61–90 Days" value={money(d.credit_ar.days_61_90)}/><Row label="> 90 Days" value={money(d.credit_ar.over_90)}/></Section>
 
-  const summary = payload.kpis ?? payload.summary ?? {};
-  const todaySales = Number(summary.today_sales ?? 0);
-  const ordersToday = Number(summary.orders_today ?? summary.today_orders ?? 0);
-
-  return {
-    kpis: {
-      today_sales: todaySales,
-      orders_today: ordersToday,
-      occupied_tables: Number(summary.occupied_tables ?? 0),
-      total_tables: Number(summary.total_tables ?? 0),
-      average_order_value: ordersToday > 0 ? todaySales / ordersToday : 0,
-      net_sales: Number(summary.net_sales ?? todaySales),
-      consumption_cost: Number(summary.consumption_cost ?? 0),
-      expenses: Number(summary.expenses ?? 0),
-      net_profit: Number(summary.net_profit ?? 0),
-      profit_margin: Number(summary.profit_margin ?? 0),
-    },
-    sales_trend: Array.isArray(payload.sales_trend) ? payload.sales_trend : [],
-    live_order_status: {
-      new: Number(payload.live_order_status?.new ?? 0),
-      preparing: Number(payload.live_order_status?.preparing ?? 0),
-      ready: Number(payload.live_order_status?.ready ?? 0),
-      served: Number(payload.live_order_status?.served ?? 0),
-      cancelled: Number(payload.live_order_status?.cancelled ?? 0),
-      active: Number(payload.live_order_status?.active ?? 0),
-    },
-    operations: {
-      tables: {
-        occupied: Number(payload.operations?.tables?.occupied ?? 0),
-        available: Number(payload.operations?.tables?.available ?? 0),
-        reserved: Number(payload.operations?.tables?.reserved ?? 0),
-      },
-      kitchen: {
-        queued: Number(payload.operations?.kitchen?.queued ?? 0),
-        ready: Number(payload.operations?.kitchen?.ready ?? 0),
-        avg_minutes: Number(payload.operations?.kitchen?.avg_minutes ?? 0),
-      },
-      bar: {
-        queued: Number(payload.operations?.bar?.queued ?? 0),
-        ready: Number(payload.operations?.bar?.ready ?? 0),
-        avg_minutes: Number(payload.operations?.bar?.avg_minutes ?? 0),
-      },
-      cashiers: {
-        open: Number(payload.operations?.cashiers?.open ?? 0),
-        closed: Number(payload.operations?.cashiers?.closed ?? 0),
-        sales: Number(payload.operations?.cashiers?.sales ?? 0),
-      },
-    },
-    table_status: Array.isArray(payload.table_status) ? payload.table_status : [],
-    requires_attention: Array.isArray(payload.requires_attention)
-      ? payload.requires_attention
-      : Number(summary.pending_approvals ?? 0) > 0
-        ? [{ label: "Pending Approvals", count: Number(summary.pending_approvals) }]
-        : [],
-    kitchen_bar_performance: Array.isArray(payload.kitchen_bar_performance)
-      ? payload.kitchen_bar_performance
-      : [],
-    top_selling_items: Array.isArray(payload.top_selling_items) ? payload.top_selling_items : [],
-    inventory: {
-      low_stock: Number(payload.inventory?.low_stock ?? 0),
-      out_of_stock: Number(payload.inventory?.out_of_stock ?? 0),
-      stock_value: Number(payload.inventory?.stock_value ?? 0),
-      today_consumption: Number(payload.inventory?.today_consumption ?? 0),
-    },
-    procurement: {
-      pending_pr: Number(payload.procurement?.pending_pr ?? summary.pending_approvals ?? 0),
-      approved_pr: Number(payload.procurement?.approved_pr ?? 0),
-      open_po: Number(payload.procurement?.open_po ?? 0),
-      awaiting_delivery: Number(payload.procurement?.awaiting_delivery ?? 0),
-      pending_grn: Number(payload.procurement?.pending_grn ?? 0),
-    },
-    cashier_sessions: Array.isArray(payload.cashier_sessions) ? payload.cashier_sessions : [],
-    staff_performance: Array.isArray(payload.staff_performance) ? payload.staff_performance : [],
-    shift_status: payload.shift_status && typeof payload.shift_status === "object"
-      ? payload.shift_status
-      : {},
-    financial_summary: {
-      gross_sales: Number(payload.financial_summary?.gross_sales ?? todaySales),
-      refunds: Number(payload.financial_summary?.refunds ?? 0),
-      net_sales: Number(payload.financial_summary?.net_sales ?? todaySales),
-      consumption_cost: Number(payload.financial_summary?.consumption_cost ?? 0),
-      gross_profit: Number(payload.financial_summary?.gross_profit ?? todaySales),
-      expenses: Number(payload.financial_summary?.expenses ?? 0),
-      net_profit: Number(payload.financial_summary?.net_profit ?? 0),
-      profit_margin: Number(payload.financial_summary?.profit_margin ?? 0),
-    },
-  };
+   <Section title="P&L SUMMARY (F&B)" className="xl:col-span-4"><div className="grid grid-cols-2 bg-primary/10 px-2 py-1 text-[10px] font-bold"><span>Line</span><span className="text-right">Actual</span></div><Row label="Total Revenue" value={money(p.total_revenue)}/><Row label="Refunds" value={money(p.refunds)}/><Row label="Net Revenue" value={money(p.net_revenue)} bold/><Row label="Cost of Sales" value={money(p.cost_of_sales)}/><Row label="Gross Profit" value={money(p.gross_profit)} bold/><Row label="Operating Expenses" value={money(p.operating_expenses)}/><Row label="Net Profit" value={money(p.net_profit)} bold/></Section>
+   <Section title="CASH POSITION" className="xl:col-span-3"><Row label="Opening Cash" value={money(c.opening_cash)}/><Row label="Cash Received" value={money(c.cash_received)}/><Row label="Cash Paid Out" value={money(c.cash_paid_out)}/><Row label="Closing Cash" value={money(c.closing_cash)} bold/><Row label="Expected (POS)" value={money(c.expected_pos)}/><Row label="Variance" value={<span className={tone(c.variance)}>{money(c.variance)}</span>} bold/></Section>
+   <Section title="EXCEPTIONS (ACTION REQUIRED)" className="border-primary/20 xl:col-span-5"><div className="grid grid-cols-[.7fr_2fr_.8fr_1.6fr] bg-primary/10 px-2 py-1 text-[10px] font-bold"><span>Area</span><span>Issue</span><span>Impact</span><span>Action</span></div>{d.exceptions.length?d.exceptions.map((x,i)=><div key={i} className="grid grid-cols-[.7fr_2fr_.8fr_1.6fr] border-b px-2 py-1.5 text-[10px]"><b>{x.area}</b><span>{x.issue}</span><span className={tone(x.impact)}>{money(x.impact)}</span><span>{x.action}</span></div>):<div className="py-8 text-center text-xs text-muted-foreground">No current exceptions requiring manager action.</div>}</Section>
+  </div>
+ </div>
 }
-
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "ETB",
-  maximumFractionDigits: 0,
-});
-const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-
-function currency(value: number | undefined) {
-  return money.format(Number(value || 0));
-}
-
-function MetricCard({
-  title,
-  value,
-  note,
-  icon: Icon,
-}: {
-  title: string;
-  value: string;
-  note: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <Card className="rounded-2xl border-border/70 shadow-sm">
-      <CardContent className="p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="rounded-xl bg-primary/10 p-2.5 text-primary">
-            <Icon className="h-5 w-5" />
-          </div>
-        </div>
-        <p className="text-sm font-medium text-muted-foreground">{title}</p>
-        <p className="mt-1 text-2xl font-bold tracking-tight">{value}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{note}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function statusLabel(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-export default function ManagerDashboardPage() {
-  const query = useQuery({
-    queryKey: ["manager-dashboard"],
-    queryFn: async () => unwrap<Response>(await api.get("/manager/dashboard")),
-    staleTime: 30_000,
-    retry: 1,
-  });
-
-  const data = normalizeManagerData(query.data);
-
-  if (query.isLoading) {
-    return (
-      <div className="space-y-5">
-        <Skeleton className="h-20 rounded-2xl" />
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <Skeleton key={index} className="h-32 rounded-2xl" />
-          ))}
-        </div>
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Skeleton className="h-80 rounded-2xl" />
-          <Skeleton className="h-80 rounded-2xl" />
-        </div>
-      </div>
-    );
-  }
-
-  if (query.isError || !data) {
-    return (
-      <Alert variant="destructive">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>Manager dashboard could not be loaded</AlertTitle>
-        <AlertDescription className="mt-2 flex items-center justify-between gap-3">
-          <span>{query.error instanceof Error ? query.error.message : "Please try again."}</span>
-          <Button variant="outline" size="sm" onClick={() => query.refetch()}>
-            Retry
-          </Button>
-        </AlertDescription>
-      </Alert>
-    );
-  }
-
-  const cards = [
-    { title: "Today's Sales", value: currency(data.kpis.today_sales), note: "Paid sales collected today", icon: Banknote },
-    { title: "Orders", value: number.format(data.kpis.orders_today), note: "Today's non-cancelled orders", icon: ShoppingCart },
-    { title: "Occupied Tables", value: `${data.kpis.occupied_tables} / ${data.kpis.total_tables}`, note: `${data.kpis.total_tables ? Math.round((data.kpis.occupied_tables / data.kpis.total_tables) * 100) : 0}% occupied`, icon: Table2 },
-    { title: "Avg. Order", value: currency(data.kpis.average_order_value), note: "Average value per order", icon: BarChart3 },
-    { title: "Net Sales", value: currency(data.kpis.net_sales), note: "After processed refunds", icon: CircleDollarSign },
-    { title: "Consumption", value: currency(data.kpis.consumption_cost), note: "Approved consumption today", icon: Boxes },
-    { title: "Expenses", value: currency(data.kpis.expenses), note: "Finance expenses today", icon: ClipboardList },
-    { title: "Net Profit", value: currency(data.kpis.net_profit), note: `${data.kpis.profit_margin}% margin`, icon: TrendingUp },
-  ];
-
-  return (
-    <div className="space-y-6 pb-8">
-      <section className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Restaurant operations</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Restaurant Manager Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Live sales, orders, tables, kitchen, bar, cashiers, inventory and profitability.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          className="rounded-xl"
-          onClick={() => query.refetch()}
-          disabled={query.isFetching}
-        >
-          <RefreshCcw className={`mr-2 h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
-      </section>
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => (
-          <MetricCard key={card.title} {...card} />
-        ))}
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[1.45fr_0.75fr]">
-        <Card className="rounded-2xl border-border/70 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Sales & Orders Trend</CardTitle>
-            <CardDescription>Hourly performance for today.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data.sales_trend}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="hour" tickLine={false} axisLine={false} minTickGap={28} />
-                  <YAxis yAxisId="sales" tickLine={false} axisLine={false} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
-                  <YAxis yAxisId="orders" orientation="right" tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip formatter={(value, name) => name === "Sales" ? [currency(Number(value)), name] : [number.format(Number(value)), name]} />
-                  <Legend />
-                  <Line yAxisId="sales" type="monotone" dataKey="sales" name="Sales" stroke="currentColor" strokeWidth={2.25} dot={false} />
-                  <Line yAxisId="orders" type="monotone" dataKey="orders" name="Orders" stroke="currentColor" strokeOpacity={0.45} strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-border/70 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Live Order Status</CardTitle>
-            <CardDescription>Current order flow for today.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              ["New", data.live_order_status.new],
-              ["Preparing", data.live_order_status.preparing],
-              ["Ready", data.live_order_status.ready],
-              ["Served", data.live_order_status.served],
-              ["Cancelled", data.live_order_status.cancelled],
-            ].map(([label, value]) => (
-              <div key={String(label)} className="flex items-center justify-between rounded-xl border px-3 py-2.5">
-                <span className="text-sm font-medium">{label}</span>
-                <span className="text-lg font-bold">{number.format(Number(value))}</span>
-              </div>
-            ))}
-            <div className="flex items-center justify-between border-t pt-3">
-              <span className="text-sm font-semibold">Total Active</span>
-              <span className="text-xl font-bold">{data.live_order_status.active}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section>
-        <div className="mb-3">
-          <h2 className="text-lg font-semibold">Live Restaurant Operations</h2>
-          <p className="text-sm text-muted-foreground">Current operating state across the restaurant.</p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Card className="rounded-2xl"><CardContent className="p-5"><Table2 className="mb-3 h-5 w-5 text-primary" /><p className="font-semibold">Tables</p><p className="mt-2 text-sm">{data.operations.tables.occupied} Occupied</p><p className="text-sm text-muted-foreground">{data.operations.tables.available} Available · {data.operations.tables.reserved} Reserved</p></CardContent></Card>
-          <Card className="rounded-2xl"><CardContent className="p-5"><ChefHat className="mb-3 h-5 w-5 text-primary" /><p className="font-semibold">Kitchen</p><p className="mt-2 text-sm">{data.operations.kitchen.queued} Queued · {data.operations.kitchen.ready} Ready</p><p className="text-sm text-muted-foreground">Avg {data.operations.kitchen.avg_minutes} min</p></CardContent></Card>
-          <Card className="rounded-2xl"><CardContent className="p-5"><Wine className="mb-3 h-5 w-5 text-primary" /><p className="font-semibold">Bar</p><p className="mt-2 text-sm">{data.operations.bar.queued} Queued · {data.operations.bar.ready} Ready</p><p className="text-sm text-muted-foreground">Avg {data.operations.bar.avg_minutes} min</p></CardContent></Card>
-          <Card className="rounded-2xl"><CardContent className="p-5"><Users className="mb-3 h-5 w-5 text-primary" /><p className="font-semibold">Cashiers</p><p className="mt-2 text-sm">{data.operations.cashiers.open} Open · {data.operations.cashiers.closed} Closed</p><p className="text-sm text-muted-foreground">{currency(data.operations.cashiers.sales)} sales</p></CardContent></Card>
-        </div>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <Card className="rounded-2xl">
-          <CardHeader><CardTitle className="text-base">Table Status</CardTitle><CardDescription>Active restaurant tables.</CardDescription></CardHeader>
-          <CardContent className="grid gap-2 sm:grid-cols-2">
-            {data.table_status.map((table) => (
-              <div key={table.id} className="flex items-center justify-between rounded-xl border px-3 py-2.5">
-                <span className="text-sm font-medium">{table.table_number}</span>
-                <Badge variant="outline" className="capitalize">{statusLabel(table.status)}</Badge>
-              </div>
-            ))}
-            {data.table_status.length === 0 && <p className="text-sm text-muted-foreground">No active tables.</p>}
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl">
-          <CardHeader><CardTitle className="text-base">Requires Attention</CardTitle><CardDescription>Operational exceptions requiring manager review.</CardDescription></CardHeader>
-          <CardContent className="space-y-2">
-            {data.requires_attention.map((item) => (
-              <div key={item.label} className="flex items-center justify-between rounded-xl border px-3 py-2.5">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{item.label}</span>
-                </div>
-                <span className="font-semibold">{item.is_money ? currency(item.count) : number.format(item.count)}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </section>
-
-      <Card className="rounded-2xl">
-        <CardHeader><CardTitle className="text-base">Kitchen & Bar Performance</CardTitle><CardDescription>Preparation speed and delayed workload.</CardDescription></CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[680px] text-sm">
-            <thead><tr className="border-b"><th className="px-3 py-3 text-left">Area</th><th className="px-3 py-3 text-right">Active</th><th className="px-3 py-3 text-right">Avg Prep</th><th className="px-3 py-3 text-right">Delayed</th><th className="px-3 py-3 text-right">Completed</th><th className="px-3 py-3 text-right">Performance</th></tr></thead>
-            <tbody>{data.kitchen_bar_performance.map((row) => <tr key={row.area} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{row.area}</td><td className="px-3 py-3 text-right">{row.active}</td><td className="px-3 py-3 text-right">{row.avg_prep} min</td><td className="px-3 py-3 text-right">{row.delayed}</td><td className="px-3 py-3 text-right">{row.completed}</td><td className="px-3 py-3 text-right font-semibold">{row.performance}%</td></tr>)}</tbody>
-          </table>
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-2xl">
-        <CardHeader><CardTitle className="text-base">Top Selling Items</CardTitle><CardDescription>Today's best-performing menu items with recipe-based consumption estimate.</CardDescription></CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead><tr className="border-b"><th className="px-3 py-3 text-left">Item</th><th className="px-3 py-3 text-left">Category</th><th className="px-3 py-3 text-right">Qty Sold</th><th className="px-3 py-3 text-right">Revenue</th><th className="px-3 py-3 text-right">Consumption</th><th className="px-3 py-3 text-right">Margin</th></tr></thead>
-            <tbody>{data.top_selling_items.map((item) => <tr key={item.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{item.name}</td><td className="px-3 py-3">{item.category}</td><td className="px-3 py-3 text-right">{number.format(item.quantity)}</td><td className="px-3 py-3 text-right">{currency(item.revenue)}</td><td className="px-3 py-3 text-right">{currency(item.consumption)}</td><td className="px-3 py-3 text-right font-semibold">{item.margin}%</td></tr>)}</tbody>
-          </table>
-        </CardContent>
-      </Card>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <Card className="rounded-2xl">
-          <CardHeader><CardTitle className="text-base">Inventory Status</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Low Stock</span><strong>{data.inventory.low_stock}</strong></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Out of Stock</span><strong>{data.inventory.out_of_stock}</strong></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Stock Value</span><strong>{currency(data.inventory.stock_value)}</strong></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Today's Consumption</span><strong>{currency(data.inventory.today_consumption)}</strong></div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl">
-          <CardHeader><CardTitle className="text-base">Procurement</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Pending PR</span><strong>{data.procurement.pending_pr}</strong></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Approved PR</span><strong>{data.procurement.approved_pr}</strong></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Open PO</span><strong>{data.procurement.open_po}</strong></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Awaiting Delivery</span><strong>{data.procurement.awaiting_delivery}</strong></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Pending GRN</span><strong>{data.procurement.pending_grn}</strong></div>
-          </CardContent>
-        </Card>
-      </section>
-
-      <Card className="rounded-2xl">
-        <CardHeader><CardTitle className="text-base">Cashier Sessions</CardTitle><CardDescription>Today's cash-shift performance.</CardDescription></CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead><tr className="border-b"><th className="px-3 py-3 text-left">Cashier</th><th className="px-3 py-3 text-left">Session</th><th className="px-3 py-3 text-right">Sales</th><th className="px-3 py-3 text-right">Expected Cash</th><th className="px-3 py-3 text-right">Variance</th><th className="px-3 py-3 text-right">Status</th></tr></thead>
-            <tbody>{data.cashier_sessions.map((row) => <tr key={row.id} className="border-b last:border-0"><td className="px-3 py-3 font-medium">{row.cashier}</td><td className="px-3 py-3">{row.session}</td><td className="px-3 py-3 text-right">{currency(row.sales)}</td><td className="px-3 py-3 text-right">{currency(row.expected_cash)}</td><td className="px-3 py-3 text-right">{currency(row.variance)}</td><td className="px-3 py-3 text-right"><Badge variant="outline" className="capitalize">{row.status}</Badge></td></tr>)}</tbody>
-          </table>
-        </CardContent>
-      </Card>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <Card className="rounded-2xl">
-          <CardHeader><CardTitle className="text-base">Staff Performance</CardTitle><CardDescription>Waiter order and sales performance today.</CardDescription></CardHeader>
-          <CardContent className="space-y-2">
-            {data.staff_performance.map((row) => (
-              <div key={row.id} className="grid grid-cols-[1fr_auto_auto] gap-4 rounded-xl border px-3 py-2.5 text-sm">
-                <span className="font-medium">{row.name}</span>
-                <span>{row.orders} orders</span>
-                <span className="font-semibold">{currency(row.sales)}</span>
-              </div>
-            ))}
-            {data.staff_performance.length === 0 && <p className="text-sm text-muted-foreground">No waiter activity today.</p>}
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl">
-          <CardHeader><CardTitle className="text-base">Shift Status</CardTitle><CardDescription>Active staff by operational role.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            {Object.entries(data.shift_status).map(([key, row]) => (
-              <div key={key} className="flex items-center justify-between rounded-xl border px-3 py-2.5">
-                <span className="text-sm font-medium capitalize">{key}</span>
-                <span className="font-semibold">{row.active} / {row.total} Active</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </section>
-
-      <Card className="rounded-2xl">
-        <CardHeader><CardTitle className="text-base">Today's Financial Summary</CardTitle><CardDescription>Manager-level profitability snapshot.</CardDescription></CardHeader>
-        <CardContent className="mx-auto w-full max-w-2xl space-y-3">
-          <div className="flex justify-between"><span>Gross Sales</span><strong>{currency(data.financial_summary.gross_sales)}</strong></div>
-          <div className="flex justify-between text-muted-foreground"><span>Refunds</span><span>- {currency(data.financial_summary.refunds)}</span></div>
-          <div className="flex justify-between border-t pt-3"><span className="font-semibold">Net Sales</span><strong>{currency(data.financial_summary.net_sales)}</strong></div>
-          <div className="flex justify-between text-muted-foreground"><span>Consumption Cost</span><span>- {currency(data.financial_summary.consumption_cost)}</span></div>
-          <div className="flex justify-between border-t pt-3"><span className="font-semibold">Gross Profit</span><strong>{currency(data.financial_summary.gross_profit)}</strong></div>
-          <div className="flex justify-between text-muted-foreground"><span>Expenses</span><span>- {currency(data.financial_summary.expenses)}</span></div>
-          <div className="flex justify-between border-t pt-3 text-lg"><span className="font-bold">NET PROFIT</span><strong>{currency(data.financial_summary.net_profit)}</strong></div>
-          <div className="flex justify-between"><span className="text-sm text-muted-foreground">Profit Margin</span><strong>{data.financial_summary.profit_margin}%</strong></div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+function Kpi({label,value,delta,sub}:{label:string;value:string;delta:Num;sub:string}){return <div className="px-2"><div className="text-[9px] font-bold text-muted-foreground">{label}</div><div className="my-1 text-lg font-black">{value}</div><div className={`text-[10px] font-bold ${tone(delta)}`}>{change(delta)}</div><div className="mt-1 text-[9px] text-muted-foreground">{sub}</div></div>}
+function Mini({label,value}:{label:string;value:string}){return <div className="px-2"><div className="text-[9px] font-bold text-muted-foreground">{label}</div><div className="mt-2 text-lg font-black">{value}</div></div>}
+function TableHead({cols}:{cols:string[]}){return <div className="grid grid-cols-2 bg-primary/10 px-2 py-1 text-[10px] font-bold">{cols.map((c,i)=><span key={c} className={i?"text-right":""}>{c}</span>)}</div>}

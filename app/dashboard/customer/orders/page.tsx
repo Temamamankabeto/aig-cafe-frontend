@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { orderService } from "@/services/order-management/order.service";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,7 +60,7 @@ export default function CustomerOrdersPage() {
         <CardContent className="pt-6">
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader><TableRow><TableHead>Order No.</TableHead><TableHead>Date</TableHead><TableHead>Payment</TableHead><TableHead>Status</TableHead><TableHead>Credit status</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Order No.</TableHead><TableHead>Date</TableHead><TableHead>Payment</TableHead><TableHead>Status</TableHead><TableHead>Credit status</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
               <TableBody>
                 {orders.map((order: any) => (
                   <TableRow key={order.id}>
@@ -68,9 +70,10 @@ export default function CustomerOrdersPage() {
                     <TableCell><Badge variant="outline" className="capitalize">{String(order.status ?? "pending").replaceAll("_", " ")}</Badge></TableCell>
                     <TableCell>{order.payment_type === "credit" ? <Badge variant="outline" className="capitalize">{String(order.credit_status ?? "credit pending").replaceAll("_", " ")}</Badge> : "—"}</TableCell>
                     <TableCell className="text-right font-semibold">{money(order.total)} ETB</TableCell>
+                    <TableCell className="text-right"><Button asChild size="sm" variant="outline"><Link href={`/dashboard/customer/complaints?order_id=${order.id}`}>Report a Problem</Link></Button></TableCell>
                   </TableRow>
                 ))}
-                {!query.isLoading && !orders.length && <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">No orders found for the selected filters.</TableCell></TableRow>}
+                {!query.isLoading && !orders.length && <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">No orders found for the selected filters.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>

@@ -384,7 +384,7 @@ export const inventoryService = {
     return unwrap<ApiEnvelope<any>>(response);
   },
 
-  async stockoutRequestQueue(scope: "food-controller" | "stock-keeper", status = "all") {
+  async stockoutRequestQueue(scope: "food-controller" | "stock-keeper" | "manager", status = "all") {
     const response = await api.get(`/${scope}/stockout-requests`, { params: { status: status === "all" ? undefined : status, per_page: 100 } });
     return paginated<any>(response.data);
   },
@@ -396,6 +396,16 @@ export const inventoryService = {
 
   async rejectStockoutRequest(id: number | string, validation_note: string) {
     const response = await api.post(`/food-controller/stockout-requests/${id}/reject`, { validation_note });
+    return unwrap<ApiEnvelope<any>>(response);
+  },
+
+  async approveStockoutRequest(id: number | string, approval_note?: string) {
+    const response = await api.post(`/manager/stockout-requests/${id}/approve`, { approval_note: approval_note || undefined });
+    return unwrap<ApiEnvelope<any>>(response);
+  },
+
+  async confirmStockoutReceipt(id: number | string) {
+    const response = await api.post(`/inventory-custody/stockout-requests/${id}/confirm-receipt`);
     return unwrap<ApiEnvelope<any>>(response);
   },
 

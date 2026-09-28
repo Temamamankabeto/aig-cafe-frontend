@@ -227,6 +227,9 @@ export type Order = {
   completed_at?: string | null;
   cancel_requested_at?: string | null;
   cancel_request_reason?: string | null;
+  fnb_void_validated_at?: string | null;
+  fnb_void_validated_by?: Id | null;
+  fnb_void_validation_reason?: string | null;
   cancel_window_remaining_seconds?: number;
   can_request_cancel?: boolean;
   item_count?: number;

@@ -1,4 +1,5 @@
 import api, { unwrap } from "@/lib/api";
+import { getStoredRoles } from "@/lib/auth/permissions";
 import type {
   ApiEnvelope,
   AssignUserRolePayload,
@@ -39,24 +40,33 @@ function paginated<T>(body: any): PaginatedResponse<T> {
   };
 }
 
+function userManagementPrefix() {
+  const roles = getStoredRoles().map((role) =>
+    String(role).trim().toLowerCase().replace(/[\s-]+/g, "_")
+  );
+  return roles.includes("manager") || roles.includes("cafeteria_manager")
+    ? "/manager"
+    : "/admin";
+}
+
 export const userService = {
   async list(params: UserListParams = {}) {
-    const response = await api.get("/admin/users", { params: cleanParams(params) });
+    const response = await api.get(`${userManagementPrefix()}/users`, { params: cleanParams(params) });
     return paginated<UserItem>(response.data);
   },
 
   async show(id: number | string) {
-    const response = await api.get(`/admin/users/${id}`);
+    const response = await api.get(`${userManagementPrefix()}/users/${id}`);
     return unwrap<ApiEnvelope<UserItem>>(response).data;
   },
 
   async create(payload: CreateUserPayload) {
-    const response = await api.post("/admin/users", payload);
+    const response = await api.post(`${userManagementPrefix()}/users`, payload);
     return unwrap<ApiEnvelope<UserItem>>(response);
   },
 
   async update(id: number | string, payload: UpdateUserPayload) {
-    const response = await api.put(`/admin/users/${id}`, payload);
+    const response = await api.put(`${userManagementPrefix()}/users/${id}`, payload);
     return unwrap<ApiEnvelope<UserItem>>(response);
   },
 
@@ -66,17 +76,17 @@ export const userService = {
   },
 
   async toggle(id: number | string) {
-    const response = await api.patch(`/admin/users/${id}/toggle`);
+    const response = await api.patch(`${userManagementPrefix()}/users/${id}/toggle`);
     return unwrap<ApiEnvelope<UserItem>>(response);
   },
 
   async resetPassword(id: number | string, payload: ResetUserPasswordPayload) {
-    const response = await api.post(`/admin/users/${id}/reset-password`, payload);
+    const response = await api.post(`${userManagementPrefix()}/users/${id}/reset-password`, payload);
     return unwrap<ApiEnvelope<{ id: number | string }>>(response);
   },
 
   async assignRole(id: number | string, payload: AssignUserRolePayload) {
-    const response = await api.post(`/admin/users/${id}/roles`, payload);
+    const response = await api.post(`${userManagementPrefix()}/users/${id}/roles`, payload);
     return unwrap<ApiEnvelope<UserItem>>(response);
   },
 
@@ -101,13 +111,13 @@ export const userService = {
   },
 
   async rolesLite() {
-    const response = await api.get("/admin/users/roles-lite");
+    const response = await api.get(`${userManagementPrefix()}/users/roles-lite`);
     const body = response.data;
     return Array.isArray(body?.data) ? (body.data as RoleItem[]) : [];
   },
 
   async waitersLite(search?: string) {
-    const response = await api.get("/admin/users/waiters-lite", { params: cleanParams({ search }) });
+    const response = await api.get(`${userManagementPrefix()}/users/waiters-lite`, { params: cleanParams({ search }) });
     const body = response.data;
     return Array.isArray(body?.data) ? (body.data as UserItem[]) : [];
   },

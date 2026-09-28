@@ -68,6 +68,7 @@ import {
   useApproveCreditSettlementMutation,
   useApproveCreditAgreementSettlementsMutation,
   useApproveVoidOrderMutation,
+  useValidateVoidOrderMutation,
   useConfirmOrderMutation,
   useCreateCreditAccountMutation,
   useUpdateCreditAccountMutation,
@@ -277,8 +278,10 @@ export function OrdersPage({
   const confirm = useConfirmOrderMutation(scope);
   const serve = useServeOrderMutation();
   const cancel = useRequestCancelOrderMutation();
-  const isVoidApprover = ["admin", "manager", "food-controller"].includes(scope);
-  const approvalScope = isVoidApprover ? scope as "admin" | "manager" | "food-controller" : "admin";
+  const isFnbVoidValidator = scope === "food-controller";
+  const isVoidApprover = ["admin", "manager"].includes(scope);
+  const approvalScope = isVoidApprover ? scope as "admin" | "manager" : "admin";
+  const validateVoid = useValidateVoidOrderMutation();
   const approveVoid = useApproveVoidOrderMutation(approvalScope);
   const [voidOrder, setVoidOrder] = useState<Order | null>(null);
   const [approvalReason, setApprovalReason] = useState("");
@@ -323,12 +326,13 @@ export function OrdersPage({
 
   const markSelectedAsPaid = async (ids = selectedOrderIds) => {
     const selected = filteredRows.filter((order) => ids.includes(order.id));
-    const eligible = selected.filter((order) =>
-      String((order as any).payment_status ?? order.bill?.status ?? "unpaid").toLowerCase() !== "paid" &&
-      String(order.status ?? "").toLowerCase() === "confirmed",
-    );
+    const eligible = selected.filter((order) => {
+      const paymentStatus = String((order as any).payment_status ?? order.bill?.status ?? "unpaid").toLowerCase();
+      const orderStatus = String(order.status ?? "").toLowerCase();
+      return paymentStatus !== "paid" && !["cancelled", "void", "refunded", "cancel_requested"].includes(orderStatus);
+    });
     if (!eligible.length) {
-      toast.error("Select at least one confirmed unpaid order.");
+      toast.error("Select at least one unpaid active order.");
       return;
     }
     try {
@@ -671,18 +675,28 @@ export function OrdersPage({
                                   <DropdownMenuItem asChild>
                                     <Link href={detailHref}>Receive Payment</Link>
                                   </DropdownMenuItem>
-                                  {String(order.status ?? "").toLowerCase() === "confirmed" && (
+                                  {!['cancelled', 'void', 'refunded', 'cancel_requested'].includes(String(order.status ?? '').toLowerCase()) && (
                                     <DropdownMenuItem onSelect={() => markSelectedAsPaid([order.id])}>
                                       Mark as Paid
                                     </DropdownMenuItem>
                                   )}
                                 </>
                               )}
-                              {isVoidApprover && order.status === "cancel_requested" && (
+                              {isFnbVoidValidator && order.status === "cancel_requested" && !order.fnb_void_validated_at && (
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     setVoidOrder(order);
-                                    setApprovalReason(order.cancel_request_reason ?? "");
+                                    setApprovalReason("");
+                                  }}
+                                >
+                                  Validate void request
+                                </DropdownMenuItem>
+                              )}
+                              {isVoidApprover && order.status === "cancel_requested" && Boolean(order.fnb_void_validated_at) && (
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setVoidOrder(order);
+                                    setApprovalReason(order.fnb_void_validation_reason ?? order.cancel_request_reason ?? "");
                                   }}
                                 >
                                   Approve void
@@ -742,7 +756,7 @@ export function OrdersPage({
       <Dialog open={Boolean(voidOrder)} onOpenChange={(open) => !open && setVoidOrder(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Approve order void</DialogTitle>
+            <DialogTitle>{isFnbVoidValidator ? "Validate order void request" : "Approve order void"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-xl border bg-muted/40 p-4 text-sm">
@@ -752,40 +766,41 @@ export function OrdersPage({
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="void-approval-reason">Approval reason</Label>
+              <Label htmlFor="void-approval-reason">{isFnbVoidValidator ? "Validation reason" : "Approval reason"}</Label>
               <Textarea
                 id="void-approval-reason"
                 value={approvalReason}
                 onChange={(event) => setApprovalReason(event.target.value)}
-                placeholder="Enter the reason for approving this void"
+                placeholder={isFnbVoidValidator ? "Enter the reason for validating this void request" : "Enter the reason for approving this void"}
                 maxLength={1000}
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setVoidOrder(null)} disabled={approveVoid.isPending}>
+              <Button variant="outline" onClick={() => setVoidOrder(null)} disabled={approveVoid.isPending || validateVoid.isPending}>
                 Cancel
               </Button>
               <Button
                 variant="destructive"
-                disabled={!voidOrder || !approvalReason.trim() || approveVoid.isPending}
+                disabled={!voidOrder || !approvalReason.trim() || approveVoid.isPending || validateVoid.isPending}
                 onClick={() => {
                   if (!voidOrder) return;
-                  approveVoid.mutate(
+                  const mutation = isFnbVoidValidator ? validateVoid : approveVoid;
+                  mutation.mutate(
                     { id: voidOrder.id, reason: approvalReason.trim() },
                     {
                       onSuccess: () => {
-                        toast.success("Order void approved successfully");
+                        toast.success(isFnbVoidValidator ? "Void request validated and forwarded to Manager" : "Order void approved successfully");
                         setVoidOrder(null);
                         setApprovalReason("");
                       },
                       onError: (error) => {
-                        toast.error(error instanceof Error ? error.message : "Failed to approve order void");
+                        toast.error(error instanceof Error ? error.message : (isFnbVoidValidator ? "Failed to validate order void" : "Failed to approve order void"));
                       },
                     },
                   );
                 }}
               >
-                {approveVoid.isPending ? "Approving..." : "Approve void"}
+                {isFnbVoidValidator ? (validateVoid.isPending ? "Validating..." : "Validate & forward") : (approveVoid.isPending ? "Approving..." : "Approve void")}
               </Button>
             </div>
           </div>
@@ -2078,9 +2093,10 @@ export function OrderDetailPage({
   const isWaiterScope = scope === "waiter";
   const normalizedOrderStatus = String(status ?? "").toLowerCase();
   const mustConfirmBeforePrintOrPayment = normalizedOrderStatus === "submitted";
+  const paymentBlockedByOrderStatus = ["cancelled", "void", "refunded", "cancel_requested"].includes(normalizedOrderStatus);
   const canManageOrderItems = !paymentLocked && (isCashierScope || (isWaiterScope && normalizedOrderStatus === "submitted"));
   const canCashierPrintTicket = isCashierScope && !paymentLocked && !mustConfirmBeforePrintOrPayment;
-  const canReceiveOrderPayment = isCashierScope && !isCreditOrder && !paymentLocked && !mustConfirmBeforePrintOrPayment;
+  const canReceiveOrderPayment = isCashierScope && !isCreditOrder && !paymentLocked && !paymentBlockedByOrderStatus;
   const isKioskPrepayment = String((order as any)?.order_source ?? "").toLowerCase() === "kiosk";
   const canCashierConfirmOrder = isCashierScope && canConfirmOrder(status) && !(isKioskPrepayment && !paymentLocked);
   const canCashierServeOrder = isCashierScope && canServeOrder(status);

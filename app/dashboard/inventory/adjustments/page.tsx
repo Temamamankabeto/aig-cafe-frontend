@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { StockAdjustmentWorkflowPage } from "@/components/inventory-management/stock-adjustment-workflow-page";
 
 export default function Page() {
-  redirect("/dashboard/inventory/items?tab=adjustments");
+  return <StockAdjustmentWorkflowPage />;
 }

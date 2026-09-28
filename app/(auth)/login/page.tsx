@@ -104,11 +104,6 @@ export default function LoginPage() {
     }
   }
 
-  function continueWithGoogle() {
-    if (loading) return;
-    window.location.assign(authService.googleLoginUrl());
-  }
-
   return (
     <>
       <div className="fixed right-4 top-4 z-[100]"><LanguageSwitcher /></div>
@@ -153,9 +148,8 @@ export default function LoginPage() {
             <button type="button" onClick={() => setQrOpen(true)} className="h-10 flex-1 rounded-lg border border-[#f4be4b]/60 bg-[#071f42]/90 px-3 text-sm font-semibold text-[#f4be4b] shadow-lg transition hover:bg-[#0a2850]">QR Card Login</button>
             <button type="button" onClick={() => router.push("/kiosk")} className="h-10 flex-1 rounded-lg bg-[#f4be4b] px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-[#ffd166] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">{t("Kiosk Ordering")}</button>
           </div>
-          <button type="button" onClick={continueWithGoogle} disabled={loading} aria-label="Continue with Google" className="absolute flex items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/95 px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166] disabled:opacity-60" style={{ left: "37.20%", top: "91%", width: "25.55%", height: "4.5%" }}>
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[13px] font-extrabold text-[#4285F4]">G</span>
-            Continue with Google
+          <button type="button" onClick={() => router.push("/public/complaints")} aria-label="Public Complaint" className="absolute flex items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/95 px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]" style={{ left: "37.20%", top: "91%", width: "25.55%", height: "4.5%" }}>
+            Public Complaint
           </button>
         </form>
       </div>
@@ -190,7 +184,7 @@ export default function LoginPage() {
                 {loading ? t("Signing in…") : t("Login")}
               </button>
               <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-slate-500"><span className="h-px flex-1 bg-white/10" />or<span className="h-px flex-1 bg-white/10" /></div>
-              <button type="button" onClick={continueWithGoogle} disabled={loading} className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99] disabled:opacity-60"><span className="flex h-6 w-6 items-center justify-center rounded-full text-base font-extrabold text-[#4285F4]">G</span>{t("Continue with Google")}</button>
+              <button type="button" onClick={() => router.push("/public/complaints")} className="flex h-12 w-full items-center justify-center rounded-xl border border-white/20 bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99]">Public Complaint</button>
               <button type="button" onClick={() => setQrOpen(true)} className="flex h-12 w-full items-center justify-center rounded-xl border border-[#f4be4b]/60 bg-transparent px-4 text-base font-bold text-[#f4be4b]">{t("Scan QR Card")}</button>
               <button type="button" onClick={() => router.push("/kiosk")} className="flex h-12 w-full items-center justify-center rounded-xl bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99]">{t("Kiosk Ordering")}</button>
             </div>

@@ -81,7 +81,15 @@ export function useRequestCancelOrderMutation() {
   return useMutation({ mutationFn: ({ id, reason }: { id: string | number; reason: string }) => orderService.requestCancel(id, reason), onSuccess: () => invalidate(qc, queryKeys.orders.root()) });
 }
 
-export function useApproveVoidOrderMutation(scope: "admin" | "manager" | "food-controller") {
+export function useValidateVoidOrderMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string | number; reason: string }) => orderService.validateVoid(id, reason),
+    onSuccess: () => invalidate(qc, queryKeys.orders.root()),
+  });
+}
+
+export function useApproveVoidOrderMutation(scope: "admin" | "manager") {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, reason }: { id: string | number; reason?: string }) =>
