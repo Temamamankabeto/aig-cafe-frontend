@@ -55,9 +55,9 @@ export default function KioskOrderPage() {
   }), [items, category, search]);
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + Number(line.item.price) * line.quantity, 0), [cart]);
-  const tax = subtotal * 0.10;
-  const serviceCharge = subtotal * 0.05;
-  const total = subtotal + tax + serviceCharge;
+  const tax = subtotal * 15 / 115; // VAT is already included in menu price
+  const serviceCharge = 0;
+  const total = subtotal;
 
   function add(item: MenuItem) {
     setCart((current) => {
@@ -183,7 +183,7 @@ export default function KioskOrderPage() {
               {orderType === "dine_in" && <select className="h-11 w-full rounded-md border bg-white px-3" value={tableId} onChange={(e) => setTableId(e.target.value)}><option value="">Select table</option>{tables.map((t) => <option key={String(t.id)} value={String(t.id)}>{t.name ?? `Table ${t.table_number ?? t.id}`}</option>)}</select>}
               <Textarea placeholder="Order notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
-            <div className="border-t p-5"><div className="space-y-2 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></div><div className="flex justify-between text-slate-500"><span>Tax (10%)</span><span>{money(tax)}</span></div><div className="flex justify-between text-slate-500"><span>Service (5%)</span><span>{money(serviceCharge)}</span></div><div className="flex justify-between border-t pt-3 text-xl font-black"><span>Total</span><span>{money(total)}</span></div></div><Button className="mt-5 h-14 w-full bg-amber-500 text-lg font-black text-slate-950 hover:bg-amber-400" disabled={submitting || !cart.length} onClick={submit}>{submitting ? "Placing Order..." : "Place Order"}</Button></div>
+            <div className="border-t p-5"><div className="space-y-2 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></div><div className="flex justify-between text-slate-500"><span>VAT included (15%)</span><span>{money(tax)}</span></div><div className="flex justify-between text-slate-500"><span>Service charge</span><span>{money(serviceCharge)}</span></div><div className="flex justify-between border-t pt-3 text-xl font-black"><span>Total</span><span>{money(total)}</span></div></div><Button className="mt-5 h-14 w-full bg-amber-500 text-lg font-black text-slate-950 hover:bg-amber-400" disabled={submitting || !cart.length} onClick={submit}>{submitting ? "Placing Order..." : "Place Order"}</Button></div>
           </div>
         </aside>
       </div>

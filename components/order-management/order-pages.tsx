@@ -895,7 +895,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
         (order as any).payable_amount ??
         (order as any).net_total ??
         (order as any).total ??
-        itemsTotal + getOrderVat(order) + getOrderServiceCharge(order),
+        itemsTotal + getOrderServiceCharge(order),
     );
   };
 
@@ -1117,8 +1117,8 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     );
   }, [orderReports]);
 
-  // Backend total for the complete selected filter, before VAT and without
-  // service charge. Fallback keeps compatibility with older API responses.
+  // Backend subtotal is VAT-inclusive. Service charge is not added to menu prices.
+  // Fallback keeps compatibility with older API responses.
   const filteredSubtotal = Number(
     (serverMeta as any)?.filtered_subtotal ?? totals.totalPrice,
   );
@@ -1221,7 +1221,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     <tr>
       <td class="label">Cash Sales</td><td class="number">${escapeHtml(money(totals.cash))}</td>
       <td class="label">Credit Sales</td><td class="number">${escapeHtml(money(totals.credit))}</td>
-      <td class="label">Total Before VAT &amp; Service Charge</td><td class="number">${escapeHtml(money(filteredSubtotal))}</td>
+      <td class="label">VAT-Inclusive Sales Total</td><td class="number">${escapeHtml(money(filteredSubtotal))}</td>
     </tr>
     <tr>
       <td class="label">Service Charge</td><td class="number">${escapeHtml(money(totals.serviceCharge))}</td>
@@ -1243,13 +1243,13 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     </thead>
     <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:20px">No sold items found.</td></tr>'}</tbody>
   </table>
-  <div class="category-title">Sales Total by Category (Before VAT &amp; Service Charge)</div>
+  <div class="category-title">Sales Total by Category (VAT Included)</div>
   <table class="report">
     <thead><tr><th>#</th><th>Category</th><th class="number">Total Quantity</th><th class="number">Total Amount (ETB)</th></tr></thead>
     <tbody>
       ${categoryRows || '<tr><td colspan="4" style="text-align:center;padding:12px">No category totals found.</td></tr>'}
       <tr class="category-total">
-        <td colspan="2">Grand Total (Before VAT &amp; Service Charge)</td>
+        <td colspan="2">Grand Total (VAT Included)</td>
         <td class="number">${escapeHtml(filteredQuantity)}</td>
         <td class="number">${escapeHtml(money(filteredSubtotal))}</td>
       </tr>
@@ -1435,7 +1435,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
 
           <details open className="overflow-hidden rounded-xl border">
             <summary className="cursor-pointer select-none px-4 py-3 font-semibold">
-              Sales Total by Category (Before VAT & Service Charge)
+              Sales Total by Category (VAT Included)
             </summary>
             <div className="overflow-x-auto border-t">
               <Table>
@@ -1468,7 +1468,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
                 <TableFooter>
                   <TableRow>
                     <TableCell colSpan={2} className="font-bold">
-                      Grand Total (Before VAT & Service Charge)
+                      Grand Total (VAT Included)
                     </TableCell>
                     <TableCell className="text-right font-bold">{filteredQuantity}</TableCell>
                     <TableCell className="text-right font-bold">{money(filteredSubtotal)}</TableCell>

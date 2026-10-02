@@ -31,7 +31,7 @@ function PrintableAigBill({ receipt, cardNumber, validated }: { receipt: any; ca
   const items = receipt?.items || [];
   const subtotal = items.reduce((sum: number, item: any) => sum + Number(item.line_total || 0), 0);
   const total = Number(receipt?.total || 0);
-  const taxAndService = Math.max(0, total - subtotal);
+  const includedVat = subtotal > 0 ? subtotal * 15 / 115 : 0;
   const dateText = new Date().toLocaleString();
   const reference = verifyCode(`${receipt?.order_number || ""}${receipt?.bill_number || ""}${cardNumber}`);
 
@@ -91,7 +91,7 @@ function PrintableAigBill({ receipt, cardNumber, validated }: { receipt: any; ca
 
           <div className="border-t border-dashed border-black pt-2">
             <div className="flex justify-between"><span>Subtotal</span><strong>{money(subtotal)}</strong></div>
-            <div className="flex justify-between"><span>Tax/Service</span><strong>{money(taxAndService)}</strong></div>
+            <div className="flex justify-between"><span>VAT included (15%)</span><strong>{money(includedVat)}</strong></div>
             <div className="receipt-total flex justify-between border-t border-black pt-1 text-sm font-black"><span>TOTAL</span><strong>{money(total)} ETB</strong></div>
             <div className="flex justify-between"><span>Remaining Credit</span><strong>{money(receipt?.account?.remaining_limit)}</strong></div>
           </div>
