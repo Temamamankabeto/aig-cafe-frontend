@@ -130,7 +130,7 @@ export default function CreditCardOrderPage() {
   const [loading, setLoading] = useState(false);
 
   const total = cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
-  const grandTotal = total * 1.15;
+  const grandTotal = total; // Menu prices already include 15% VAT
   const dailyRemaining = Number(validated?.daily_remaining ?? 0);
   const hasDailyLimit = validated?.daily_remaining !== null && validated?.daily_remaining !== undefined && Number.isFinite(dailyRemaining) && dailyRemaining >= 0;
   const exceedsDailyLimit = Boolean(validated) && hasDailyLimit && grandTotal > dailyRemaining;
@@ -238,7 +238,7 @@ export default function CreditCardOrderPage() {
             <CardContent className="space-y-3">
               {!cart.length && <p className="text-muted-foreground">No items selected.</p>}
               {cart.map((item) => <div key={item.id} className="flex justify-between rounded border p-2"><span>{item.name} x {item.quantity}</span><strong>{(Number(item.price || 0) * item.quantity).toFixed(2)}</strong></div>)}
-              <div className="rounded bg-muted p-3"><div className="flex justify-between"><span>Total with tax/service</span><strong>{grandTotal.toFixed(2)}</strong></div><div className="flex justify-between"><span>Monthly available</span><strong>{Number(validated.available_limit || 0).toFixed(2)}</strong></div>{hasDailyLimit && <div className="flex justify-between"><span>Optional daily remaining</span><strong>{dailyRemaining.toFixed(2)}</strong></div>}</div>
+              <div className="rounded bg-muted p-3"><div className="flex justify-between"><span>Total (VAT included)</span><strong>{grandTotal.toFixed(2)}</strong></div><div className="flex justify-between"><span>Monthly available</span><strong>{Number(validated.available_limit || 0).toFixed(2)}</strong></div>{hasDailyLimit && <div className="flex justify-between"><span>Optional daily remaining</span><strong>{dailyRemaining.toFixed(2)}</strong></div>}</div>
               {exceedsDailyLimit && <p className="text-sm text-amber-700">This order is above the optional daily limit. You can continue only after confirming.</p>}
               <Button className="w-full" onClick={submitOrder} disabled={loading || !cart.length || grandTotal > Number(validated.available_limit || 0)}>Submit credit order</Button>
             </CardContent>

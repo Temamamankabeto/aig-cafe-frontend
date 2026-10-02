@@ -5,7 +5,7 @@ type PrintableOrder = Partial<Order> & Record<string, any>;
 type TicketKind = "customer" | "kitchen" | "bar" | "bill";
 
 const DEFAULT_VAT_RATE = 0.15;
-const DEFAULT_SERVICE_CHARGE_RATE = 0.07;
+const DEFAULT_SERVICE_CHARGE_RATE = 0;
 
 const SELLER = {
   name: "AIG",
@@ -134,7 +134,7 @@ function billingSummary(order?: PrintableOrder) {
     order?.vat_amount,
     order?.tax,
     order?.tax_amount,
-    subtotal * vatRate,
+    subtotal * vatRate / (1 + vatRate),
   );
   const grandTotal = numberValue(
     bill?.grand_total,
@@ -143,7 +143,7 @@ function billingSummary(order?: PrintableOrder) {
     order?.grand_total,
     order?.total_amount,
     order?.total,
-    subtotal + serviceCharge + vat,
+    subtotal + serviceCharge,
   );
   const paidAmount = numberValue(bill?.paid_amount, order?.paid_amount, 0);
   const balance = numberValue(
