@@ -53,6 +53,7 @@ export type ProcurementScope =
   | "admin"
   | "manager"
   | "food-controller"
+  | "finance"
   | "purchaser"
   | "stock-keeper";
 export interface PurchaseOrderListParams {
@@ -162,6 +163,8 @@ export type PurchaseOrderStatus =
   | "draft"
   | "submitted"
   | "food_validated"
+  | "finance_verified"
+  | "finance_rejected"
   | "validation_rejected"
   | "approved"
   | "partially_received"
@@ -203,6 +206,10 @@ export interface PurchaseOrderRow {
   notes?: string | null;
   created_at?: string | null;
   submitted_at?: string | null;
+  finance_verified_at?: string | null;
+  finance_verification_note?: string | null;
+  finance_verified_by?: number | null;
+  finance_verifier?: { id: number; name?: string | null } | null;
   approved_at?: string | null;
   received_at?: string | null;
   supplier?: SupplierRow | null;
@@ -279,6 +286,7 @@ function detectedScope(): Exclude<ProcurementScope, "auto"> {
     )
   )
     return "manager";
+  if (roles.some((role) => ["finance", "finance_manager"].includes(role))) return "finance";
   if (
     roles.includes("purchaser") ||
     roles.includes("purchase") ||
@@ -312,6 +320,7 @@ function rolePrefix(scope: ProcurementScope = "auto") {
   const resolved = resolveScope(scope);
   if (resolved === "manager") return "/manager";
   if (resolved === "food-controller") return "/food-controller";
+  if (resolved === "finance") return "/finance";
   if (resolved === "purchaser") return "/purchaser";
   if (resolved === "stock-keeper") return "/stock-keeper";
   return "/admin";
@@ -452,6 +461,21 @@ export const procurementService = {
       `${rolePrefix(scope)}/purchase-orders/${id}/reject-validation`,
       { reason },
     );
+    return unwrap<PurchaseOrderRow>(response.data);
+  },
+
+  async pendingFinanceVerification(params: InventoryListParams = {}) {
+    const response = await api.get(`/finance/purchase-orders/pending-verification`, { params: cleanParams(params as Record<string, unknown>) });
+    return paginated<PurchaseOrderRow>(response.data);
+  },
+
+  async verifyPurchaseBudget(id: number | string, note: string) {
+    const response = await api.post(`/finance/purchase-orders/${id}/verify-budget`, { note });
+    return unwrap<PurchaseOrderRow>(response.data);
+  },
+
+  async rejectPurchaseBudget(id: number | string, reason: string) {
+    const response = await api.post(`/finance/purchase-orders/${id}/reject-budget`, { reason });
     return unwrap<PurchaseOrderRow>(response.data);
   },
 

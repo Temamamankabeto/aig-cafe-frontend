@@ -60,7 +60,7 @@ function ConfirmValidationDialog({ po }: { po: PurchaseOrderRow }) {
   const confirm = useMutation({
     mutationFn: () => procurementService.validatePurchaseOrder(po.id, note, "food-controller"),
     onSuccess: () => {
-      toast.success("Purchase request validated and sent for manager approval");
+      toast.success("Purchase request validated and sent to Finance for budget verification");
       qc.invalidateQueries({ queryKey: ["procurement", "purchase-validation"] });
       qc.invalidateQueries({ queryKey: ["procurement", "purchase-orders"] });
       setOpen(false);
@@ -97,7 +97,7 @@ const issueCount = Object.values(summary).reduce<number>((sum, value) => {
       <Button size="sm" onClick={() => setOpen(true)}><ShieldCheck className="mr-2 h-4 w-4" />Validate</Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-4xl">
-          <DialogHeader><DialogTitle>Confirm purchase validation</DialogTitle><DialogDescription>This confirms the purchase request as Food Controller validated and moves it to manager approval workflow.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Confirm purchase validation</DialogTitle><DialogDescription>This confirms the purchase request as Food Controller validated and moves it to Finance budget verification before Manager approval.</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <div className="rounded-xl border p-4"><p className="font-medium">{po.po_number ?? `PO-${po.id}`} · {po.supplier?.name ?? `Supplier #${po.supplier_id}`}</p><p className="text-sm text-muted-foreground">Status: {po.status?.replaceAll("_", " ")} · Total {formatMoney(po.total ?? 0)} ETB</p></div>
             {integrity.isLoading ? <p className="text-sm text-muted-foreground">Checking recipe integrity...</p> : <div className="grid gap-3 md:grid-cols-4"><div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Items without recipe</p><p className="text-lg font-semibold">{Number(summary.menu_items_without_recipe ?? 0)}</p></div><div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Recipes without ingredients</p><p className="text-lg font-semibold">{Number(summary.recipes_without_ingredients ?? 0)}</p></div><div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Missing inventory links</p><p className="text-lg font-semibold">{Number(summary.recipes_with_missing_inventory_links ?? 0)}</p></div><div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Direct items without link</p><p className="text-lg font-semibold">{Number(summary.direct_items_without_link ?? 0)}</p></div></div>}
@@ -124,7 +124,7 @@ export function PurchaseValidationConfirmPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2"><div className="rounded-xl bg-primary/10 p-2 text-primary"><ShieldCheck className="h-5 w-5" /></div><h1 className="text-2xl font-bold tracking-tight">Purchase Validation</h1></div><p className="mt-2 text-sm text-muted-foreground">Food Controller validates submitted purchase requests before manager approval.</p></div><Button variant="outline" onClick={() => query.refetch()}><RefreshCcw className="mr-2 h-4 w-4" />Refresh</Button></div>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2"><div className="rounded-xl bg-primary/10 p-2 text-primary"><ShieldCheck className="h-5 w-5" /></div><h1 className="text-2xl font-bold tracking-tight">Purchase Validation</h1></div><p className="mt-2 text-sm text-muted-foreground">Food Controller validates submitted purchase requests before Finance verifies budget availability and Manager approves.</p></div><Button variant="outline" onClick={() => query.refetch()}><RefreshCcw className="mr-2 h-4 w-4" />Refresh</Button></div>
       <Card>
         <CardHeader><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><CardTitle>Submitted requests</CardTitle><CardDescription>Click Validate, review the request, then Confirm validation.</CardDescription></div><div className="relative md:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder="Search PO or supplier..." /></div></div></CardHeader>
         <CardContent>

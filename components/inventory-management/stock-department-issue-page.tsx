@@ -116,7 +116,7 @@ export function StockDepartmentIssuePage() {
       reason: reason.trim(),
     }, "stock-keeper"),
     onSuccess: () => {
-      toast.success("Department stockout recorded");
+      toast.success("Department stock-out request submitted for F&B validation.");
       setItemId("");
       setQuantity("");
       setDepartment("");
@@ -155,7 +155,7 @@ export function StockDepartmentIssuePage() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight">Department Stockout</h1>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">Issue stock items to departments and keep the movement trail visible for inventory control.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Create department stock-out requests and issue them only after F&B validation and Manager approval.</p>
         </div>
         <Badge variant="secondary" className="w-fit">Store Keeper</Badge>
       </div>
@@ -165,8 +165,8 @@ export function StockDepartmentIssuePage() {
       <div className="grid gap-4 xl:grid-cols-[430px_1fr]">
         <Card className="rounded-2xl">
           <CardHeader>
-            <CardTitle>Record stockout item</CardTitle>
-            <CardDescription>Quantity is deducted from inventory and recorded as department stockout.</CardDescription>
+            <CardTitle>Request department stock issue</CardTitle>
+            <CardDescription>Select the department and responsible user. F&B Controller validates, Manager approves, then Store Keeper issues and stock/movement are updated.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={submit} className="space-y-4">

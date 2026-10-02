@@ -147,6 +147,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
       { label: "Orders", href: `${orderBase}/orders` },
       { label: "Purchase Validation", href: "/dashboard/purchases/validation" },
       { label: "Stock-out Validation", href: "/dashboard/fb-controller/stockout-validation" },
+      { label: "Stock Adjustment Validation", href: "/dashboard/inventory/adjustments", permission: "inventory.read" },
     ]),
     group("Inventory & Reports", BarChart3, [
       { label: "Inventory Items", href: "/dashboard/inventory/items", permission: "inventory.read" },
@@ -188,6 +189,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
       { label: "Receive Stock / Stock In", href: "/dashboard/purchases/receiving", permission: "inventory.read" },
       { label: "Inventory Items", href: "/dashboard/inventory/items", permission: "inventory.read" },
       { label: "Stock-out", href: "/dashboard/inventory/stockout", permission: "inventory.adjustments.create" },
+      { label: "Request Stock Adjustment", href: "/dashboard/inventory/adjustments", permission: "inventory.adjustments.create" },
       { label: "Return to Store", href: "/dashboard/inventory/returns", permission: "inventory.read" },
     ]),
     group("Stock Control", BarChart3, [

@@ -33,6 +33,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -77,6 +78,8 @@ type StatusFilter =
   | "draft"
   | "submitted"
   | "food_validated"
+  | "finance_verified"
+  | "finance_rejected"
   | "validation_rejected"
   | "approved"
   | "partially_received"
@@ -131,11 +134,11 @@ function canReceivePurchaseOrder() {
 
 export function statusBadge(status?: string | null) {
   const normalized = status ?? "draft";
-  if (["validation_rejected", "cancelled"].includes(normalized))
+  if (["validation_rejected", "finance_rejected", "cancelled"].includes(normalized))
     return (
       <Badge variant="destructive">{normalized.replaceAll("_", " ")}</Badge>
     );
-  if (["food_validated", "approved", "completed"].includes(normalized))
+  if (["food_validated", "finance_verified", "approved", "completed"].includes(normalized))
     return <Badge variant="default">{normalized.replaceAll("_", " ")}</Badge>;
   return <Badge variant="secondary">{normalized.replaceAll("_", " ")}</Badge>;
 }
@@ -720,6 +723,7 @@ function PurchaseOrdersTable({
   loading?: boolean;
 }) {
   const qc = useQueryClient();
+  const [detailPo, setDetailPo] = useState<PurchaseOrderRow | null>(null);
   const submit = useMutation({
     mutationFn: (id: number) => procurementService.submitPurchaseOrder(id),
     onSuccess: () => {
@@ -733,6 +737,7 @@ function PurchaseOrdersTable({
       procurementService.approvePurchaseOrder(id, "manager"),
     onSuccess: () => {
       toast.success("Purchase order approved and ready for receiving");
+      setDetailPo(null);
       qc.invalidateQueries({ queryKey: ["procurement", "purchase-orders"] });
     },
     onError: (error) => toast.error(extractError(error, "Failed to approve")),
@@ -753,6 +758,7 @@ function PurchaseOrdersTable({
       </div>
     );
   return (
+    <>
     <Table>
       <TableHeader>
         <TableRow>
@@ -787,19 +793,39 @@ function PurchaseOrdersTable({
                     Submit
                   </Button>
                 )}
-                {canApprovePurchaseOrder() &&
-                  po.status === "food_validated" && (
-                    <Button size="sm" onClick={() => approve.mutate(po.id)}>
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
-                      Approve
-                    </Button>
-                  )}
+                <Button size="sm" variant="outline" onClick={() => setDetailPo(po)}>Details</Button>
+                {canApprovePurchaseOrder() && po.status === "finance_verified" && (
+                  <Button size="sm" onClick={() => setDetailPo(po)}>
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Review & Approve
+                  </Button>
+                )}
               </div>
             </TableCell>
           </TableRow>
         ))}
       </TableBody>
     </Table>
+    <Dialog open={!!detailPo} onOpenChange={(open) => !open && setDetailPo(null)}>
+      <DialogContent className="max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Purchase request details</DialogTitle>
+          <DialogDescription>Review supplier, requested items, F&amp;B validation and Finance budget verification.</DialogDescription>
+        </DialogHeader>
+        {detailPo && <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">PO</p><p className="font-semibold">{detailPo.po_number ?? `PO-${detailPo.id}`}</p></div>
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Supplier</p><p className="font-semibold">{detailPo.supplier?.name ?? "—"}</p></div>
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Total</p><p className="font-semibold">{formatMoney(detailPo.total ?? 0)} ETB</p></div>
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Status</p>{statusBadge(detailPo.status)}</div>
+          </div>
+          {detailPo.status === "finance_verified" && <div className="rounded-lg border bg-muted/30 p-3"><p className="font-medium">Finance: Budget sufficient / verified</p><p className="text-sm text-muted-foreground">{detailPo.finance_verification_note ?? "Budget availability verified by Finance."}</p></div>}
+          <div className="max-h-72 overflow-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Quantity</TableHead><TableHead>Unit Cost</TableHead><TableHead>Line Total</TableHead></TableRow></TableHeader><TableBody>{(detailPo.items ?? []).map((line) => { const inv = line.inventory_item ?? line.inventoryItem; const unit = inv?.base_unit ?? line.unit ?? "pcs"; return <TableRow key={line.id}><TableCell>{inv?.name ?? `Item #${line.inventory_item_id}`}</TableCell><TableCell>{formatBaseQuantity(line.quantity, unit)}</TableCell><TableCell>{formatMoney(line.unit_cost)} ETB</TableCell><TableCell>{formatMoney(line.line_total ?? Number(line.quantity) * Number(line.unit_cost))} ETB</TableCell></TableRow>; })}</TableBody></Table></div>
+        </div>}
+        <DialogFooter><Button variant="outline" onClick={() => setDetailPo(null)}>Close</Button>{detailPo && canApprovePurchaseOrder() && detailPo.status === "finance_verified" && <Button disabled={approve.isPending} onClick={() => approve.mutate(detailPo.id)}><CheckCircle2 className="mr-2 h-4 w-4"/>Approve Purchase</Button>}</DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
