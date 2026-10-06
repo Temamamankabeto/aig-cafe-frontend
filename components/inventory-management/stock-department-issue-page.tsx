@@ -3,11 +3,14 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ClipboardList, PackageMinus, Search } from "lucide-react";
+import { Check, ChevronsUpDown, ClipboardList, PackageMinus, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -180,16 +183,30 @@ export function StockDepartmentIssuePage() {
 
               <div className="space-y-2">
                 <Label>Stock item</Label>
-                <Select value={itemId} onValueChange={setItemId}>
-                  <SelectTrigger><SelectValue placeholder="Select stock item" /></SelectTrigger>
-                  <SelectContent>
-                    {filteredItems.map((item) => (
-                      <SelectItem key={item.id} value={String(item.id)}>
-                        {itemName(item)} — {formatBaseQuantity(item.current_stock, itemUnit(item))}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="outline" role="combobox" className="w-full justify-between font-normal">
+                      <span className="truncate">{selectedItem ? `${itemName(selectedItem)} — ${formatBaseQuantity(selectedItem.current_stock, itemUnit(selectedItem))}` : "Select stock item"}</span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search item by name or SKU..." />
+                      <CommandList>
+                        <CommandEmpty>No stock item found.</CommandEmpty>
+                        <CommandGroup>
+                          {items.map((item) => (
+                            <CommandItem key={item.id} value={`${item.name} ${item.sku ?? ""}`} onSelect={() => setItemId(String(item.id))}>
+                              <Check className={cn("mr-2 h-4 w-4", itemId === String(item.id) ? "opacity-100" : "opacity-0")} />
+                              <span className="truncate">{itemName(item)} — {formatBaseQuantity(item.current_stock, itemUnit(item))}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">

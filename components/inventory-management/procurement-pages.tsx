@@ -7,6 +7,8 @@ import type { PurchaseOrderStatus } from "@/services/inventory-management/procur
 
 import {
   AlertTriangle,
+  Check,
+  ChevronsUpDown,
   CheckCircle2,
   ClipboardList,
   PackageCheck,
@@ -37,6 +39,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -441,7 +446,7 @@ export function PurchaseRequestsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Purchase Requests"
-        description="Store Keeper/Purchaser creates requests, Food Controller validates, Finance confirms budget, Manager approves, and Store Keeper receives."
+        description="Store Keeper/Purchaser creates requests, Food Controller validates, Manager approves, and Store Keeper receives."
         icon={ClipboardList}
       />
       <Card>
@@ -450,7 +455,8 @@ export function PurchaseRequestsPage() {
             <div>
               <CardTitle>Purchase orders</CardTitle>
               <CardDescription>
-                Flow: Draft → Submitted → Food Controller Validated → Finance Verified → Manager Approved → Received.
+                Flow: Draft → Submitted → Food Controller Validated → Approved →
+                Received.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 md:flex-row md:items-center">
@@ -629,38 +635,46 @@ function PurchaseOrderForm({ onDone }: { onDone?: () => void }) {
             key={index}
             className="grid gap-2 rounded-xl border p-3 md:grid-cols-[1fr_140px_140px_80px]"
           >
-            <Select
-              value={line.inventory_item_id}
-              onValueChange={(value) =>
-                setLines((old) =>
-                  old.map((row, i) =>
-                    i === index
-                      ? {
-                          ...row,
-                          inventory_item_id: value,
-                          unit_cost:
-                            row.unit_cost ||
-                            String(
-                              items.find((item) => String(item.id) === value)
-                                ?.average_purchase_price ?? "",
-                            ),
-                        }
-                      : row,
-                  ),
-                )
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Inventory item" />
-              </SelectTrigger>
-              <SelectContent>
-                {items.map((item) => (
-                  <SelectItem key={item.id} value={String(item.id)}>
-                    {item.name} ({item.base_unit})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" role="combobox" className="w-full justify-between font-normal">
+                  <span className="truncate">
+                    {(() => {
+                      const selected = items.find((item) => String(item.id) === line.inventory_item_id);
+                      return selected ? `${selected.name}${selected.sku ? ` (${selected.sku})` : ""} — ${selected.base_unit ?? selected.unit ?? "pc"}` : "Inventory item";
+                    })()}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search item by name or SKU..." />
+                  <CommandList>
+                    <CommandEmpty>No inventory item found.</CommandEmpty>
+                    <CommandGroup>
+                      {items.map((item) => (
+                        <CommandItem
+                          key={item.id}
+                          value={`${item.name} ${item.sku ?? ""}`}
+                          onSelect={() => {
+                            const value = String(item.id);
+                            setLines((old) => old.map((row, i) => i === index ? {
+                              ...row,
+                              inventory_item_id: value,
+                              unit_cost: row.unit_cost || String(item.average_purchase_price ?? ""),
+                            } : row));
+                          }}
+                        >
+                          <Check className={cn("mr-2 h-4 w-4", line.inventory_item_id === String(item.id) ? "opacity-100" : "opacity-0")} />
+                          <span className="truncate">{item.name}{item.sku ? ` (${item.sku})` : ""} — {item.base_unit ?? item.unit ?? "pc"}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
             <Input
               value={line.quantity}
               onChange={(event) =>
