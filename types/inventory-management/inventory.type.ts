@@ -199,6 +199,8 @@ export interface StockBalanceRow {
   inventory_item_id: number;
   item: string;
   sku?: string | null;
+  category_id?: number | null;
+  category_name?: string | null;
   store: string;
   unit: BaseUnit;
   available_quantity: number;

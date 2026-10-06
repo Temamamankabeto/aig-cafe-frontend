@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Edit, MoreHorizontal, Package, Plus, RefreshCw, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Edit, MoreHorizontal, Package, Plus, RefreshCw, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -209,7 +209,76 @@ export function InventoryItemsSiPage({ scope = "admin" }: { scope?: Scope }) {
 }
 
 function InventoryItemsTable({ rows, scope }: { rows: InventoryItem[]; scope: Scope }) {
-  return <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Unit</TableHead><TableHead>Current stock</TableHead><TableHead>Minimum quantity</TableHead><TableHead>Avg price / unit</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => { const unit = itemUnit(row); return <TableRow key={row.id}><TableCell><p className="font-medium">{row.name}</p><p className="text-xs text-muted-foreground">{row.sku ?? "No SKU"}</p></TableCell><TableCell><Badge variant="outline">{unit}</Badge></TableCell><TableCell>{formatBaseQuantity(row.current_stock, unit)}</TableCell><TableCell>{formatBaseQuantity(row.minimum_quantity, unit)}</TableCell><TableCell>{formatMoney(row.average_purchase_price)} ETB / {unit}</TableCell><TableCell><Badge variant={row.is_active === false ? "destructive" : "secondary"}>{row.is_active === false ? "Inactive" : "Active"}</Badge></TableCell><TableCell className="text-right"><InventoryRowActions item={row} scope={scope} /></TableCell></TableRow>; })}</TableBody></Table></div>;
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const groups = useMemo(() => {
+    const grouped = new Map<string, InventoryItem[]>();
+    for (const row of rows) {
+      const rowWithCategoryName = row as InventoryItem & { category_name?: string | null };
+      const category = row.category?.name?.trim() || rowWithCategoryName.category_name?.trim() || "Uncategorized";
+      grouped.set(category, [...(grouped.get(category) ?? []), row]);
+    }
+    return Array.from(grouped.entries()).sort(([a], [b]) => {
+      if (a === "Uncategorized") return 1;
+      if (b === "Uncategorized") return -1;
+      return a.localeCompare(b);
+    });
+  }, [rows]);
+
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Item</TableHead>
+            <TableHead>Unit</TableHead>
+            <TableHead>Current stock</TableHead>
+            <TableHead>Minimum quantity</TableHead>
+            <TableHead>Avg price / unit</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {groups.map(([category, categoryRows]) => {
+            const isCollapsed = collapsed[category] ?? false;
+            return (
+              <Fragment key={category}>
+                <TableRow className="bg-muted/50 hover:bg-muted/70">
+                  <TableCell colSpan={7} className="p-0">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-4 py-3 text-left font-semibold"
+                      onClick={() => setCollapsed((state) => ({ ...state, [category]: !isCollapsed }))}
+                      aria-expanded={!isCollapsed}
+                    >
+                      {isCollapsed ? <ChevronRight className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                      <span>{category}</span>
+                      <Badge variant="outline" className="ml-1">{categoryRows.length}</Badge>
+                    </button>
+                  </TableCell>
+                </TableRow>
+                {!isCollapsed && categoryRows.map((row) => {
+                  const unit = itemUnit(row);
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="pl-10"><p className="font-medium">{row.name}</p><p className="text-xs text-muted-foreground">{row.sku ?? "No SKU"}</p></TableCell>
+                      <TableCell><Badge variant="outline">{unit}</Badge></TableCell>
+                      <TableCell>{formatBaseQuantity(row.current_stock, unit)}</TableCell>
+                      <TableCell>{formatBaseQuantity(row.minimum_quantity, unit)}</TableCell>
+                      <TableCell>{formatMoney(row.average_purchase_price)} ETB / {unit}</TableCell>
+                      <TableCell><Badge variant={row.is_active === false ? "destructive" : "secondary"}>{row.is_active === false ? "Inactive" : "Active"}</Badge></TableCell>
+                      <TableCell className="text-right"><InventoryRowActions item={row} scope={scope} /></TableCell>
+                    </TableRow>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
 }
 
 function InventoryRowActions({ item, scope }: { item: InventoryItem; scope: Scope }) {

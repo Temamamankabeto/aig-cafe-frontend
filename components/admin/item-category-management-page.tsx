@@ -13,18 +13,19 @@ type ItemCategory={id:number;name:string;items_count?:number;is_active?:boolean}
 type PageData={data?:ItemCategory[]};
 const message=(e:any)=>e?.response?.data?.message ?? (e instanceof Error?e.message:"Request failed.");
 
-export function ItemCategoryManagementPage(){
+export function ItemCategoryManagementPage({ scope = "admin" }: { scope?: "admin" | "stock-keeper" }){
+ const basePath = scope === "stock-keeper" ? "/stock-keeper/item-categories" : "/admin/item-categories";
  const qc=useQueryClient();
  const [search,setSearch]=useState(""); const [name,setName]=useState("");
  const [editing,setEditing]=useState<ItemCategory|null>(null); const [modalOpen,setModalOpen]=useState(false); const [menuId,setMenuId]=useState<number|null>(null);
  const menuRef=useRef<HTMLDivElement|null>(null);
- const query=useQuery({queryKey:["admin","item-categories",search],queryFn:async()=>{const r=await api.get("/admin/item-categories",{params:{search,per_page:100}});return r.data.data as PageData;}});
- const refresh=()=>qc.invalidateQueries({queryKey:["admin","item-categories"]});
+ const query=useQuery({queryKey:[scope,"item-categories",search],queryFn:async()=>{const r=await api.get(basePath,{params:{search,per_page:100}});return r.data.data as PageData;}});
+ const refresh=()=>qc.invalidateQueries({queryKey:[scope,"item-categories"]});
  const closeModal=()=>{setModalOpen(false);setEditing(null);setName("");};
  const openCreate=()=>{setMenuId(null);setEditing(null);setName("");setModalOpen(true);};
  const openEdit=(row:ItemCategory)=>{setMenuId(null);setEditing(row);setName(row.name);setModalOpen(true);};
- const save=useMutation({mutationFn:()=>editing?api.put(`/admin/item-categories/${editing.id}`,{name:name.trim()}):api.post("/admin/item-categories",{name:name.trim()}),onSuccess:r=>{toast.success(r.data.message||"Category saved");closeModal();refresh();},onError:e=>toast.error(message(e))});
- const toggle=useMutation({mutationFn:(row:ItemCategory)=>api.put(`/admin/item-categories/${row.id}`,{name:row.name,is_active:!(row.is_active??true)}),onSuccess:r=>{toast.success(r.data.message||"Category updated");setMenuId(null);refresh();},onError:e=>toast.error(message(e))});
+ const save=useMutation({mutationFn:()=>editing?api.put(`${basePath}/${editing.id}`,{name:name.trim()}):api.post(basePath,{name:name.trim()}),onSuccess:r=>{toast.success(r.data.message||"Category saved");closeModal();refresh();},onError:e=>toast.error(message(e))});
+ const toggle=useMutation({mutationFn:(row:ItemCategory)=>api.put(`${basePath}/${row.id}`,{name:row.name,is_active:!(row.is_active??true)}),onSuccess:r=>{toast.success(r.data.message||"Category updated");setMenuId(null);refresh();},onError:e=>toast.error(message(e))});
  function submit(e:FormEvent){e.preventDefault();if(name.trim())save.mutate();}
  useEffect(()=>{const onDown=(e:MouseEvent)=>{if(menuRef.current&&!menuRef.current.contains(e.target as Node))setMenuId(null)};document.addEventListener("mousedown",onDown);return()=>document.removeEventListener("mousedown",onDown)},[]);
  useEffect(()=>{if(!modalOpen)return;const old=document.body.style.overflow;document.body.style.overflow="hidden";return()=>{document.body.style.overflow=old}},[modalOpen]);

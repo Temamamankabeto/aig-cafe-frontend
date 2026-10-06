@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Edit, MoreHorizontal, Package, Plus, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Edit, MoreHorizontal, Package, Plus, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,7 +70,7 @@ function PageHeader() {
 export function InventoryItemsPage({ scope = "admin" }: { scope?: Scope }) {
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const query = useInventoryItemsQuery({ search, per_page: 20 }, scope);
+  const query = useInventoryItemsQuery({ search, per_page: 200 }, scope);
   const rows = query.data?.data ?? [];
 
   return (
@@ -112,36 +112,24 @@ export function InventoryItemsPage({ scope = "admin" }: { scope?: Scope }) {
 }
 
 function InventoryItemsTable({ rows, loading, scope }: { rows: InventoryItem[]; loading?: boolean; scope: Scope }) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const groups = useMemo(() => {
+    const grouped = new Map<string, InventoryItem[]>();
+    for (const row of rows) {
+      const category = row.category?.name?.trim() || "Uncategorized";
+      grouped.set(category, [...(grouped.get(category) ?? []), row]);
+    }
+    return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [rows]);
+
   if (loading) return <p className="text-sm text-muted-foreground">Loading inventory...</p>;
   if (!rows.length) return <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No inventory items found.</p>;
 
   return (
     <div className="overflow-x-auto">
       <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Item</TableHead>
-            <TableHead>Base unit</TableHead>
-            <TableHead>Current stock</TableHead>
-            <TableHead>Minimum</TableHead>
-            <TableHead>Avg price</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id}>
-              <TableCell><p className="font-medium">{row.name}</p><p className="text-xs text-muted-foreground">{row.sku ?? "No SKU"}</p></TableCell>
-              <TableCell><Badge variant="outline">{itemUnit(row)}</Badge></TableCell>
-              <TableCell>{formatBaseQuantity(row.current_stock, itemUnit(row))}</TableCell>
-              <TableCell>{formatBaseQuantity(row.minimum_quantity, itemUnit(row))}</TableCell>
-              <TableCell>{formatMoney(row.average_purchase_price)} ETB</TableCell>
-              <TableCell><Badge variant={row.is_active === false ? "destructive" : "secondary"}>{row.is_active === false ? "Inactive" : "Active"}</Badge></TableCell>
-              <TableCell className="text-right"><InventoryRowActions item={row} scope={scope} /></TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
+        <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Base unit</TableHead><TableHead>Current stock</TableHead><TableHead>Minimum</TableHead><TableHead>Avg price</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+        <TableBody>{groups.map(([category, categoryRows]) => { const isCollapsed = collapsed[category] ?? false; return <Fragment key={category}><TableRow className="bg-muted/50 hover:bg-muted/70"><TableCell colSpan={7} className="p-0"><button type="button" className="flex w-full items-center gap-2 px-4 py-3 text-left font-semibold" onClick={() => setCollapsed((state) => ({ ...state, [category]: !isCollapsed }))}>{isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}<span>{category}</span><span className="text-xs font-normal text-muted-foreground">({categoryRows.length} item{categoryRows.length === 1 ? "" : "s"})</span></button></TableCell></TableRow>{!isCollapsed && categoryRows.map((row) => <TableRow key={row.id}><TableCell className="pl-10"><p className="font-medium">{row.name}</p><p className="text-xs text-muted-foreground">{row.sku ?? "No SKU"}</p></TableCell><TableCell><Badge variant="outline">{itemUnit(row)}</Badge></TableCell><TableCell>{formatBaseQuantity(row.current_stock, itemUnit(row))}</TableCell><TableCell>{formatBaseQuantity(row.minimum_quantity, itemUnit(row))}</TableCell><TableCell>{formatMoney(row.average_purchase_price)} ETB</TableCell><TableCell><Badge variant={row.is_active === false ? "destructive" : "secondary"}>{row.is_active === false ? "Inactive" : "Active"}</Badge></TableCell><TableCell className="text-right"><InventoryRowActions item={row} scope={scope} /></TableCell></TableRow>)}</Fragment>; })}</TableBody>
       </Table>
     </div>
   );

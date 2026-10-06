@@ -188,6 +188,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
       { label: "Stock Workspace", href: "/dashboard/stock-keeper/stock-workspace" },
       { label: "Receive Stock / Stock In", href: "/dashboard/purchases/receiving", permission: "inventory.read" },
       { label: "Inventory Items", href: "/dashboard/inventory/items", permission: "inventory.read" },
+      { label: "Item Categories", href: "/dashboard/inventory/item-categories", permission: "inventory.read" },
       { label: "Stock-out", href: "/dashboard/inventory/stockout", permission: "inventory.adjustments.create" },
       { label: "Return to Store", href: "/dashboard/inventory/returns", permission: "inventory.read" },
     ]),

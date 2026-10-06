@@ -18,7 +18,7 @@ type ActionType = "validate" | "approve" | "reject" | "issue";
 
 export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
   const client = useQueryClient();
-  const [status, setStatus] = useState(mode === "validation" ? "submitted" : mode === "approval" ? "validated" : "approved");
+  const [status, setStatus] = useState(mode === "issue" ? "approved" : "all");
   const [detailRow, setDetailRow] = useState<any>(null);
   const [actionRow, setActionRow] = useState<any>(null);
   const [actionType, setActionType] = useState<ActionType | null>(null);
@@ -91,11 +91,11 @@ export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
           <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
           <SelectContent>
             {(mode === "validation"
-              ? ["submitted", "validated", "rejected", "approved", "issued", "received", "all"]
+              ? ["all", "submitted", "validated", "approved", "rejected", "issued", "received"]
               : mode === "approval"
-                ? ["validated", "approved", "rejected", "issued", "received", "all"]
+                ? ["all", "validated", "approved", "rejected", "issued", "received"]
                 : ["approved", "issued", "received", "all"]
-            ).map((value) => <SelectItem key={value} value={value}>{value.replace(/^./, (c) => c.toUpperCase())}</SelectItem>)}
+            ).map((value) => <SelectItem key={value} value={value}>{value === "all" ? "All Statuses" : value.replace(/^./, (c) => c.toUpperCase())}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>

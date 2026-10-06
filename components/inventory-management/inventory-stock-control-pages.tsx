@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowDownToLine, BookOpen, Printer, RotateCcw } from "lucide-react";
+import { ArrowDownToLine, BookOpen, ChevronDown, ChevronRight, Printer, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBaseQuantity } from "@/lib/inventory-management";
 import inventoryService from "@/services/inventory-management/inventory.service";
-import type { InventoryTransaction } from "@/types/inventory-management";
+import type { InventoryTransaction, StockBalanceRow } from "@/types/inventory-management";
 
 const number = (value: unknown) => Number(value ?? 0);
 const issueItem = (issue?: InventoryTransaction) => issue?.inventory_item ?? issue?.inventoryItem;
@@ -50,8 +50,19 @@ export function ReturnToStorePage() {
 
 export function StockBalancePage() {
   const [search, setSearch] = useState("");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const balances = useQuery({ queryKey: ["inventory", "stock-balances", search], queryFn: () => inventoryService.stockBalances({ search, per_page: 200 }, "stock-keeper") });
-  return <div className="space-y-6"><header><h1 className="text-2xl font-bold">Stock Balance</h1><p className="mt-1 text-sm text-muted-foreground">Current available stock. Use Stock Card to see how each balance was reached.</p></header><Card><CardHeader><CardTitle>Current quantities</CardTitle><CardDescription>Main Store availability and reorder position.</CardDescription></CardHeader><CardContent className="space-y-4"><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search item or SKU" /><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Store</TableHead><TableHead>Available</TableHead><TableHead>Reserved</TableHead><TableHead>Minimum</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{(balances.data?.data ?? []).map((row) => <TableRow key={row.inventory_item_id}><TableCell className="font-medium">{row.item}<span className="block text-xs text-muted-foreground">{row.sku || "No SKU"}</span></TableCell><TableCell>{row.store}</TableCell><TableCell>{formatBaseQuantity(row.available_quantity, row.unit)}</TableCell><TableCell>{formatBaseQuantity(row.reserved_quantity, row.unit)}</TableCell><TableCell>{formatBaseQuantity(row.minimum_quantity, row.unit)}</TableCell><TableCell className="capitalize">{row.stock_status.replaceAll("_", " ")}</TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card></div>;
+  const groups = useMemo(() => {
+    const grouped = new Map<string, StockBalanceRow[]>();
+    for (const row of balances.data?.data ?? []) {
+      const category = row.category_name?.trim() || "Uncategorized";
+      const current = grouped.get(category) ?? [];
+      current.push(row);
+      grouped.set(category, current);
+    }
+    return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [balances.data]);
+  return <div className="space-y-6"><header><h1 className="text-2xl font-bold">Stock Balance</h1><p className="mt-1 text-sm text-muted-foreground">Current available stock grouped by item category. Use Stock Card to see how each balance was reached.</p></header><Card><CardHeader><CardTitle>Current quantities</CardTitle><CardDescription>Main Store availability and reorder position.</CardDescription></CardHeader><CardContent className="space-y-4"><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search item or SKU" /><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Store</TableHead><TableHead>Available</TableHead><TableHead>Reserved</TableHead><TableHead>Minimum</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{groups.map(([category, rows]) => { const isCollapsed = collapsed[category] ?? false; return <Fragment key={category}><TableRow className="bg-muted/50 hover:bg-muted/70"><TableCell colSpan={6} className="p-0"><button type="button" className="flex w-full items-center gap-2 px-4 py-3 text-left font-semibold" onClick={() => setCollapsed((state) => ({ ...state, [category]: !isCollapsed }))}>{isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}<span>{category}</span><span className="text-xs font-normal text-muted-foreground">({rows.length} item{rows.length === 1 ? "" : "s"})</span></button></TableCell></TableRow>{!isCollapsed && rows.map((row) => <TableRow key={row.inventory_item_id}><TableCell className="pl-10 font-medium">{row.item}<span className="block text-xs text-muted-foreground">{row.sku || "No SKU"}</span></TableCell><TableCell>{row.store}</TableCell><TableCell>{formatBaseQuantity(row.available_quantity, row.unit)}</TableCell><TableCell>{formatBaseQuantity(row.reserved_quantity, row.unit)}</TableCell><TableCell>{formatBaseQuantity(row.minimum_quantity, row.unit)}</TableCell><TableCell className="capitalize">{row.stock_status.replaceAll("_", " ")}</TableCell></TableRow>)}</Fragment>; })}</TableBody></Table></div></CardContent></Card></div>;
 }
 
 export function StockCardPage() {

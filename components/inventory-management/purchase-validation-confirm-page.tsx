@@ -116,17 +116,17 @@ export function PurchaseValidationConfirmPage() {
   const [search, setSearch] = useState("");
   const query = useQuery({
     queryKey: ["procurement", "purchase-validation", search],
-    queryFn: () => procurementService.pendingPurchaseValidation({ search, per_page: 20 }),
+    queryFn: () => procurementService.purchaseOrders({ search, per_page: 100 }, "food-controller"),
     staleTime: 30000,
     retry: false,
   });
-  const rows = query.data?.data ?? [];
+  const rows = (query.data?.data ?? []).filter((po) => po.status !== "draft");
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2"><div className="rounded-xl bg-primary/10 p-2 text-primary"><ShieldCheck className="h-5 w-5" /></div><h1 className="text-2xl font-bold tracking-tight">Purchase Validation</h1></div><p className="mt-2 text-sm text-muted-foreground">Food Controller validates submitted purchase requests before Finance verifies budget availability and Manager approves.</p></div><Button variant="outline" onClick={() => query.refetch()}><RefreshCcw className="mr-2 h-4 w-4" />Refresh</Button></div>
       <Card>
-        <CardHeader><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><CardTitle>Submitted requests</CardTitle><CardDescription>Click Validate, review the request, then Confirm validation.</CardDescription></div><div className="relative md:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder="Search PO or supplier..." /></div></div></CardHeader>
+        <CardHeader><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><CardTitle>Purchase validation & history</CardTitle><CardDescription>Submitted requests can be validated here. Validated and later workflow statuses remain visible for tracking.</CardDescription></div><div className="relative md:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder="Search PO or supplier..." /></div></div></CardHeader>
         <CardContent>
           {query.isLoading ? (
             <p className="text-sm text-muted-foreground">Loading purchase requests...</p>
@@ -139,7 +139,7 @@ export function PurchaseValidationConfirmPage() {
           ) : rows.length ? (
             <Table>
               <TableHeader><TableRow><TableHead>PO</TableHead><TableHead>Supplier</TableHead><TableHead>Status</TableHead><TableHead>Items</TableHead><TableHead>Total</TableHead><TableHead>Expected</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
-              <TableBody>{rows.map((po) => <TableRow key={po.id}><TableCell className="font-medium">{po.po_number ?? `PO-${po.id}`}</TableCell><TableCell>{po.supplier?.name ?? `Supplier #${po.supplier_id}`}</TableCell><TableCell>{statusBadge(po.status)}</TableCell><TableCell>{po.items?.length ?? 0}</TableCell><TableCell>{formatMoney(po.total ?? 0)} ETB</TableCell><TableCell>{po.expected_date ?? "—"}</TableCell><TableCell className="text-right"><ConfirmValidationDialog po={po} /></TableCell></TableRow>)}</TableBody>
+              <TableBody>{rows.map((po) => <TableRow key={po.id}><TableCell className="font-medium">{po.po_number ?? `PO-${po.id}`}</TableCell><TableCell>{po.supplier?.name ?? `Supplier #${po.supplier_id}`}</TableCell><TableCell>{statusBadge(po.status)}</TableCell><TableCell>{po.items?.length ?? 0}</TableCell><TableCell>{formatMoney(po.total ?? 0)} ETB</TableCell><TableCell>{po.expected_date ?? "—"}</TableCell><TableCell className="text-right">{po.status === "submitted" ? <ConfirmValidationDialog po={po} /> : <span className="text-sm text-muted-foreground">Processed</span>}</TableCell></TableRow>)}</TableBody>
             </Table>
           ) : (
             <div className="rounded-xl border border-dashed p-8 text-center"><p className="font-medium">No submitted purchase requests</p><p className="mt-1 text-sm text-muted-foreground">Submitted purchase requests waiting for Food Controller validation will appear here.</p></div>

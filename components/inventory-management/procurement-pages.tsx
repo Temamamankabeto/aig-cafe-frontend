@@ -441,7 +441,7 @@ export function PurchaseRequestsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Purchase Requests"
-        description="Store Keeper/Purchaser creates requests, Food Controller validates, Manager approves, and Store Keeper receives."
+        description="Store Keeper/Purchaser creates requests, Food Controller validates, Finance confirms budget, Manager approves, and Store Keeper receives."
         icon={ClipboardList}
       />
       <Card>
@@ -450,8 +450,7 @@ export function PurchaseRequestsPage() {
             <div>
               <CardTitle>Purchase orders</CardTitle>
               <CardDescription>
-                Flow: Draft → Submitted → Food Controller Validated → Approved →
-                Received.
+                Flow: Draft → Submitted → Food Controller Validated → Finance Verified → Manager Approved → Received.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 md:flex-row md:items-center">
