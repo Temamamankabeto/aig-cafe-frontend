@@ -820,6 +820,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     date_from: "",
     date_to: "",
   });
+  const [reportMode, setReportMode] = useState(false);
   const waitersQuery = useWaitersLiteQuery("", scope !== "waiter");
   const waiters = waitersQuery.data ?? [];
 
@@ -828,6 +829,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
       page: filters.page,
       per_page: filters.per_page,
       report: 1,
+      all: reportMode ? 1 : undefined,
       payment_type: filters.payment_type === "all" ? undefined : filters.payment_type,
       waiter_id: filters.waiter_id === "all" ? undefined : filters.waiter_id,
       period: filters.period,
@@ -1136,8 +1138,10 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
   const totalOrders = serverMeta?.total ?? orderReports.length;
   const paginatedOrders = orderReports;
 
-  const updateFilter = (patch: Partial<typeof filters>) =>
+  const updateFilter = (patch: Partial<typeof filters>) => {
+    if (Object.keys(patch).some((key) => key !== "per_page" && key !== "page")) setReportMode(true);
     setFilters((current) => ({ ...current, ...patch, page: 1 }));
+  };
 
   const printFilteredReport = () => {
     const escapeHtml = (value: unknown) =>
@@ -1240,7 +1244,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     </thead>
     <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:20px">No sold items found.</td></tr>'}</tbody>
   </table>
-  <div class="category-title">Sales Total by Category — Current Page (VAT Included)</div>
+  <div class="category-title">Sales Total by Category (VAT Included)</div>
   <table class="report">
     <thead><tr><th>#</th><th>Category</th><th class="number">Total Quantity</th><th class="number">Total Amount (ETB)</th></tr></thead>
     <tbody>
@@ -1275,13 +1279,14 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
               variant="outline"
               className="w-full sm:w-auto"
               onClick={printFilteredReport}
-              disabled={query.isLoading || orderReports.length === 0}
+              disabled={query.isFetching || orderReports.length === 0}
             >
               <Printer className="mr-2 h-4 w-4" />
               Print attachment
             </Button>
           </div>
 
+          {reportMode && <div className="flex items-center justify-between text-sm text-muted-foreground"><span>Report Mode · All matching paid orders, no pagination</span><Button variant="outline" size="sm" onClick={() => { setReportMode(false); setFilters({ page: 1, per_page: 10, payment_type: "all", waiter_id: "all", period: "today", date_from: "", date_to: "" }); }}>Clear filters / Browse mode</Button></div>}
           <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
             <Select
               value={filters.period}
@@ -1342,7 +1347,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
               </Select>
             )}
 
-            <Select
+            {!reportMode && <Select
               value={String(filters.per_page)}
               onValueChange={(per_page) =>
                 updateFilter({ per_page: Number(per_page) })
@@ -1356,7 +1361,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
                 <SelectItem value="25">25 orders</SelectItem>
                 <SelectItem value="50">50 orders</SelectItem>
               </SelectContent>
-            </Select>
+            </Select>}
 
             {filters.period === "custom" && (
               <>
@@ -1432,7 +1437,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
 
           <details open className="overflow-hidden rounded-xl border">
             <summary className="cursor-pointer select-none px-4 py-3 font-semibold">
-              Sales Total by Category — Current Page (VAT Included)
+              Sales Total by Category (VAT Included)
             </summary>
             <div className="overflow-x-auto border-t">
               <Table>
@@ -1475,7 +1480,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
             </div>
           </details>
 
-          <div className="flex items-center justify-between">
+          {!reportMode && <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
               Page {currentPage} of {lastPage} · {totalOrders} orders
             </p>
@@ -1505,7 +1510,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
                 Next
               </Button>
             </div>
-          </div>
+          </div>}
         </CardContent>
       </Card>
 

@@ -62,6 +62,7 @@ export type OrderFilters = {
   per_page?: number;
   active?: boolean | number | string;
   report?: boolean | number;
+  all?: number;
 };
 
 export type MenuFilters = {

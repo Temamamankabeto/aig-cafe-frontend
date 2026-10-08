@@ -83,9 +83,11 @@ export function SoldItemsReport() {
   });
   const cashiers = cashiersQuery.data?.data ?? [];
 
+  const reportMode = Boolean(filters.date_from || filters.date_to || filters.cashier_id !== "all");
+
   const report = useQuery({
     queryKey: ["reports", "sold-items", filters],
-    queryFn: async () => (await api.get<Response>("/reports/sold-items", { params: requestParams(filters) })).data,
+    queryFn: async () => (await api.get<Response>("/reports/sold-items", { params: { ...requestParams(filters), report: reportMode ? 1 : undefined } })).data,
   });
 
   const rows = report.data?.data ?? [];
@@ -118,14 +120,8 @@ export function SoldItemsReport() {
   }
 
   async function fetchAllRows() {
-    const first = (await api.get<Response>("/reports/sold-items", { params: requestParams(filters, { page: 1, per_page: 100 }) })).data;
-    const allRows = [...(first.data ?? [])];
-    const pages = first.meta?.last_page ?? 1;
-    if (pages > 1) {
-      const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, index) => api.get<Response>("/reports/sold-items", { params: requestParams(filters, { page: index + 2, per_page: 100 }) })));
-      rest.forEach((result) => allRows.push(...(result.data.data ?? [])));
-    }
-    return { rows: allRows, summary: first.meta?.summary ?? emptySummary };
+    const first = (await api.get<Response>("/reports/sold-items", { params: { ...requestParams(filters), report: 1 } })).data;
+    return { rows: first.data ?? [], summary: first.meta?.summary ?? emptySummary };
   }
 
   async function printReport() {
@@ -203,10 +199,11 @@ export function SoldItemsReport() {
           </TableRow>))
           : <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">No sales found for the selected date range and payment type.</TableCell></TableRow>}
       </TableBody><TableFooter><TableRow><TableCell colSpan={2} className="font-bold">Filtered Summary</TableCell><TableCell className="text-right font-bold">{quantity(summary.total_quantity)}</TableCell><TableCell /><TableCell className="text-right font-bold">{money(summary.total_sales)}</TableCell><TableCell /></TableRow></TableFooter></Table></div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-muted-foreground">Page {meta?.current_page ?? 1} of {meta?.last_page ?? 1} · {meta?.total ?? 0} grouped menu items</p><div className="flex gap-2">
+      {!reportMode && <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-muted-foreground">Page {meta?.current_page ?? 1} of {meta?.last_page ?? 1} · {meta?.total ?? 0} grouped menu items</p><div className="flex gap-2">
         <Button type="button" variant="outline" disabled={(meta?.current_page ?? 1) <= 1 || report.isFetching} onClick={() => changePage(Math.max(1, (meta?.current_page ?? 1) - 1))}>Previous</Button>
         <Button type="button" variant="outline" disabled={(meta?.current_page ?? 1) >= (meta?.last_page ?? 1) || report.isFetching} onClick={() => changePage(Math.min(meta?.last_page ?? 1, (meta?.current_page ?? 1) + 1))}>Next</Button>
-      </div></div>
+      </div></div>}
+      {reportMode && <p className="text-sm text-muted-foreground">Report Mode · All {meta?.total ?? rows.length} matching grouped menu items · No pagination</p>}
     </CardContent></Card>
   </div>;
 }
