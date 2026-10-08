@@ -1117,22 +1117,19 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     );
   }, [orderReports]);
 
-  // Backend subtotal is VAT-inclusive. Service charge is not added to menu prices.
-  // Fallback keeps compatibility with older API responses.
-  const filteredSubtotal = Number(
-    (serverMeta as any)?.filtered_subtotal ?? totals.totalPrice,
-  );
-  const categoryTotals = Array.isArray((serverMeta as any)?.category_totals)
-    ? (serverMeta as any).category_totals.map((row: any) => ({
-        category: String(row?.category ?? "Uncategorized"),
-        totalQuantity: Number(row?.total_quantity ?? 0),
-        totalAmount: Number(row?.total_amount ?? 0),
-      }))
-    : [];
-  const filteredQuantity = Number(
-    (serverMeta as any)?.filtered_quantity ??
-      categoryTotals.reduce((sum: number, row: any) => sum + row.totalQuantity, 0),
-  );
+  // The item table is paginated. Derive the category summary from exactly the
+  // same visible paid order items so quantities and money always reconcile.
+  const categoryTotals = Array.from(aggregatedItems.reduce((map, item) => {
+    const key = item.category;
+    const previous = map.get(key) ?? { category: key, totalQuantity: 0, totalAmount: 0 };
+    previous.totalQuantity += item.qty;
+    previous.totalAmount += item.total;
+    map.set(key, previous);
+    return map;
+  }, new Map<string, { category: string; totalQuantity: number; totalAmount: number }>()).values())
+    .sort((a, b) => b.totalAmount - a.totalAmount);
+  const filteredSubtotal = categoryTotals.reduce((sum, row) => sum + row.totalAmount, 0);
+  const filteredQuantity = categoryTotals.reduce((sum, row) => sum + row.totalQuantity, 0);
 
   const currentPage = serverMeta?.current_page ?? filters.page;
   const lastPage = Math.max(serverMeta?.last_page ?? 1, 1);
@@ -1221,7 +1218,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     <tr>
       <td class="label">Cash Sales</td><td class="number">${escapeHtml(money(totals.cash))}</td>
       <td class="label">Credit Sales</td><td class="number">${escapeHtml(money(totals.credit))}</td>
-      <td class="label">VAT-Inclusive Sales Total</td><td class="number">${escapeHtml(money(filteredSubtotal))}</td>
+      <td class="label">VAT-Inclusive Sales Total (Current Page)</td><td class="number">${escapeHtml(money(filteredSubtotal))}</td>
     </tr>
     <tr>
       <td class="label">Service Charge</td><td class="number">${escapeHtml(money(totals.serviceCharge))}</td>
@@ -1243,7 +1240,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
     </thead>
     <tbody>${rows || '<tr><td colspan="7" style="text-align:center;padding:20px">No sold items found.</td></tr>'}</tbody>
   </table>
-  <div class="category-title">Sales Total by Category (VAT Included)</div>
+  <div class="category-title">Sales Total by Category — Current Page (VAT Included)</div>
   <table class="report">
     <thead><tr><th>#</th><th>Category</th><th class="number">Total Quantity</th><th class="number">Total Amount (ETB)</th></tr></thead>
     <tbody>
@@ -1435,7 +1432,7 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
 
           <details open className="overflow-hidden rounded-xl border">
             <summary className="cursor-pointer select-none px-4 py-3 font-semibold">
-              Sales Total by Category (VAT Included)
+              Sales Total by Category — Current Page (VAT Included)
             </summary>
             <div className="overflow-x-auto border-t">
               <Table>
