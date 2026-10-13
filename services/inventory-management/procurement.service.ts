@@ -387,6 +387,20 @@ export const procurementService = {
     return unwrap<SupplierRow>(response.data);
   },
 
+  async updateSupplier(
+    id: number,
+    payload: SupplierPayload,
+    scope: ProcurementScope = "auto",
+  ) {
+    const response = await api.put(`${rolePrefix(scope)}/suppliers/${id}`, payload);
+    return unwrap<SupplierRow>(response.data);
+  },
+
+  async deleteSupplier(id: number, scope: ProcurementScope = "auto") {
+    const response = await api.delete(`${rolePrefix(scope)}/suppliers/${id}`);
+    return response.data;
+  },
+
   async purchaseOrders(
   params: PurchaseOrderListParams = {},
   scope: ProcurementScope = "auto",

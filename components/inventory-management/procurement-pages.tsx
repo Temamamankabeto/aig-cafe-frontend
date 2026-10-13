@@ -18,6 +18,8 @@ import {
   Search,
   Send,
   Truck,
+  Pencil,
+  Trash2,
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -257,172 +259,138 @@ function printPurchaseOrder(po: PurchaseOrderRow) {
 export function SuppliersPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<SupplierRow | null>(null);
+  const [deleting, setDeleting] = useState<SupplierRow | null>(null);
+  const qc = useQueryClient();
   const query = useQuery({
     queryKey: ["procurement", "suppliers", search],
     queryFn: () => procurementService.suppliers({ search, per_page: 20 }),
   });
-  const rows = query.data?.data ?? [];
+  const remove = useMutation({
+    mutationFn: (id: number) => procurementService.deleteSupplier(id),
+    onSuccess: () => {
+      toast.success("Supplier deleted");
+      qc.invalidateQueries({ queryKey: ["procurement", "suppliers"] });
+      setDeleting(null);
+    },
+    onError: (error) => toast.error(extractError(error, "Failed to delete supplier. If purchase orders exist, deactivate the supplier instead.")),
+  });
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Suppliers"
-        description="Purchaser manages suppliers before creating purchase requests."
-        icon={Users}
-      />
+      <PageHeader title="Suppliers" description="Manage suppliers for purchase requests." icon={Users} />
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle>Supplier list</CardTitle>
-              <CardDescription>
-                Search suppliers and create new suppliers for procurement.
-              </CardDescription>
+              <CardDescription>Search, create, edit and manage suppliers.</CardDescription>
             </div>
             <div className="flex gap-2">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="pl-9"
-                  placeholder="Search supplier..."
-                />
+                <Input value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder="Search supplier..." />
               </div>
-              <Dialog open={open} onOpenChange={setOpen}>
-                {canCreateSupplier() && (
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      New supplier
-                    </Button>
-                  </DialogTrigger>
-                )}
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create supplier</DialogTitle>
-                    <DialogDescription>
-                      Used by Purchaser for purchase requests.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <SupplierForm onDone={() => setOpen(false)} />
-                </DialogContent>
-              </Dialog>
+              {canCreateSupplier() && <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus className="mr-2 h-4 w-4" />New supplier</Button>}
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <SuppliersTable rows={rows} loading={query.isLoading} />
+          <SuppliersTable rows={query.data?.data ?? []} loading={query.isLoading} onEdit={(row) => { setEditing(row); setOpen(true); }} onDelete={setDeleting} />
         </CardContent>
       </Card>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit supplier" : "Create supplier"}</DialogTitle>
+            <DialogDescription>{editing ? "Update supplier details and active status." : "Register a supplier for procurement."}</DialogDescription>
+          </DialogHeader>
+          <SupplierForm key={editing?.id ?? "new"} supplier={editing} onDone={() => { setOpen(false); setEditing(null); }} />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!deleting} onOpenChange={(next) => { if (!next && !remove.isPending) setDeleting(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete supplier?</DialogTitle>
+            <DialogDescription>Delete {deleting?.name}? This cannot be undone. Suppliers with purchase orders cannot be deleted; deactivate them instead.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={remove.isPending} onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={remove.isPending || !deleting} onClick={() => deleting && remove.mutate(deleting.id)}>Delete supplier</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-function SupplierForm({ onDone }: { onDone?: () => void }) {
+function SupplierForm({ supplier, onDone }: { supplier?: SupplierRow | null; onDone?: () => void }) {
   const qc = useQueryClient();
   const mutation = useMutation({
-    mutationFn: (payload: SupplierPayload) =>
-      procurementService.createSupplier(payload),
+    mutationFn: (payload: SupplierPayload) => supplier ? procurementService.updateSupplier(supplier.id, payload) : procurementService.createSupplier(payload),
     onSuccess: () => {
-      toast.success("Supplier created");
+      toast.success(supplier ? "Supplier updated" : "Supplier created");
       qc.invalidateQueries({ queryKey: ["procurement", "suppliers"] });
       onDone?.();
     },
-    onError: (error) =>
-      toast.error(extractError(error, "Failed to create supplier")),
+    onError: (error) => toast.error(extractError(error, "Failed to save supplier")),
   });
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     mutation.mutate({
-      name: String(form.get("name") ?? ""),
+      name: String(form.get("name") ?? "").trim(),
       phone: String(form.get("phone") ?? ""),
       email: String(form.get("email") ?? ""),
       address: String(form.get("address") ?? ""),
       tax_id: String(form.get("tax_id") ?? ""),
-      is_active: true,
+      is_active: form.get("is_active") === "true",
     });
   }
   return (
     <form onSubmit={submit} className="space-y-3">
-      <div>
-        <Label>Name</Label>
-        <Input name="name" required />
-      </div>
+      <div><Label>Name</Label><Input name="name" defaultValue={supplier?.name ?? ""} required /></div>
       <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <Label>Phone</Label>
-          <Input name="phone" />
-        </div>
-        <div>
-          <Label>Email</Label>
-          <Input name="email" type="email" />
-        </div>
+        <div><Label>Phone</Label><Input name="phone" defaultValue={supplier?.phone ?? ""} /></div>
+        <div><Label>Email</Label><Input name="email" type="email" defaultValue={supplier?.email ?? ""} /></div>
       </div>
+      <div><Label>Tax ID</Label><Input name="tax_id" defaultValue={supplier?.tax_id ?? ""} /></div>
+      <div><Label>Address</Label><Textarea name="address" defaultValue={supplier?.address ?? ""} /></div>
       <div>
-        <Label>Tax ID</Label>
-        <Input name="tax_id" />
+        <Label>Status</Label>
+        <Select name="is_active" defaultValue={supplier?.is_active === false ? "false" : "true"}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="true">Active</SelectItem><SelectItem value="false">Inactive</SelectItem></SelectContent>
+        </Select>
       </div>
-      <div>
-        <Label>Address</Label>
-        <Textarea name="address" />
-      </div>
-      <Button disabled={mutation.isPending} type="submit">
-        Save supplier
-      </Button>
+      <DialogFooter><Button disabled={mutation.isPending} type="submit">{supplier ? "Save changes" : "Save supplier"}</Button></DialogFooter>
     </form>
   );
 }
-function SuppliersTable({
-  rows,
-  loading,
-}: {
+function SuppliersTable({ rows, loading, onEdit, onDelete }: {
   rows: SupplierRow[];
   loading?: boolean;
+  onEdit: (row: SupplierRow) => void;
+  onDelete: (row: SupplierRow) => void;
 }) {
-  if (loading)
-    return (
-      <p className="text-sm text-muted-foreground">Loading suppliers...</p>
-    );
-  if (!rows.length)
-    return (
-      <div className="rounded-xl border border-dashed p-8 text-center">
-        <p className="font-medium">No suppliers</p>
-        <p className="text-sm text-muted-foreground">
-          Create suppliers before purchase requests.
-        </p>
-      </div>
-    );
+  if (loading) return <p className="text-sm text-muted-foreground">Loading suppliers...</p>;
+  if (!rows.length) return <div className="rounded-xl border border-dashed p-8 text-center"><p className="font-medium">No suppliers</p><p className="text-sm text-muted-foreground">Create suppliers before purchase requests.</p></div>;
   return (
     <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Phone</TableHead>
-          <TableHead>Email</TableHead>
-          <TableHead>Orders</TableHead>
-          <TableHead>Total</TableHead>
-          <TableHead>Status</TableHead>
-        </TableRow>
-      </TableHeader>
+      <TableHeader><TableRow>
+        <TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Email</TableHead><TableHead>Orders</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead><TableHead>Actions</TableHead>
+      </TableRow></TableHeader>
       <TableBody>
-        {rows.map((row) => (
-          <TableRow key={row.id}>
-            <TableCell className="font-medium">{row.name}</TableCell>
-            <TableCell>{row.phone ?? "—"}</TableCell>
-            <TableCell>{row.email ?? "—"}</TableCell>
-            <TableCell>{row.purchase_orders_count ?? 0}</TableCell>
-            <TableCell>
-              {formatMoney(row.purchase_orders_total ?? 0)} ETB
-            </TableCell>
-            <TableCell>
-              {row.is_active === false ? (
-                <Badge variant="secondary">Inactive</Badge>
-              ) : (
-                <Badge>Active</Badge>
-              )}
-            </TableCell>
-          </TableRow>
-        ))}
+        {rows.map((row) => <TableRow key={row.id}>
+          <TableCell className="font-medium">{row.name}</TableCell>
+          <TableCell>{row.phone ?? "—"}</TableCell>
+          <TableCell>{row.email ?? "—"}</TableCell>
+          <TableCell>{row.purchase_orders_count ?? 0}</TableCell>
+          <TableCell>{formatMoney(row.purchase_orders_total ?? 0)} ETB</TableCell>
+          <TableCell>{row.is_active === false ? <Badge variant="secondary">Inactive</Badge> : <Badge>Active</Badge>}</TableCell>
+          <TableCell><div className="flex gap-2">
+            {can(purchasePermissions.suppliersUpdate) && <Button variant="outline" size="sm" onClick={() => onEdit(row)}><Pencil className="mr-1 h-4 w-4" />Edit</Button>}
+            {can(purchasePermissions.suppliersDelete) && <Button variant="outline" size="sm" onClick={() => onDelete(row)}><Trash2 className="mr-1 h-4 w-4" />Delete</Button>}
+          </div></TableCell>
+        </TableRow>)}
       </TableBody>
     </Table>
   );

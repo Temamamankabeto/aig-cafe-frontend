@@ -85,6 +85,7 @@ export const purchasePermissions = {
   suppliersRead: "suppliers.read",
   suppliersCreate: "suppliers.create",
   suppliersUpdate: "suppliers.update",
+  suppliersDelete: "suppliers.delete",
   ordersRead: "purchase_orders.read",
   ordersCreate: "purchase_orders.create",
   ordersSubmit: "purchase_orders.submit",
