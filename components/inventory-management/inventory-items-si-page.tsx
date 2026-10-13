@@ -105,21 +105,11 @@ function EmptyState() {
 
 export function InventoryItemsSiPage({ scope = "admin" }: { scope?: Scope }) {
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(10);
   const [createOpen, setCreateOpen] = useState(false);
-  const query = useInventoryItemsQuery({ search, page, per_page: perPage }, scope);
+  const query = useInventoryItemsQuery({ search, all: true }, scope);
   const rows = query.data?.data ?? [];
-  const meta = query.data?.meta;
-  const currentPage = meta?.current_page ?? page;
-  const lastPage = Math.max(meta?.last_page ?? 1, 1);
-  const totalItems = meta?.total ?? rows.length;
-  const firstItem = totalItems === 0 ? 0 : (currentPage - 1) * perPage + 1;
-  const lastItem = totalItems === 0 ? 0 : Math.min(firstItem + rows.length - 1, totalItems);
-
   function handleSearchChange(value: string) {
     setSearch(value);
-    setPage(1);
   }
 
   return (
@@ -164,40 +154,7 @@ export function InventoryItemsSiPage({ scope = "admin" }: { scope?: Scope }) {
           ) : rows.length ? (
             <div className="space-y-4">
               <InventoryItemsTable rows={rows} scope={scope} />
-              <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>Show</span>
-                  <Select value={String(perPage)} onValueChange={(value) => { setPerPage(Number(value)); setPage(1); }}>
-                    <SelectTrigger className="h-9 w-[76px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {[10, 20, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <span>items per page</span>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <p className="text-sm text-muted-foreground">Showing {firstItem} to {lastItem} of {totalItems} items</p>
-                  <div className="flex items-center gap-1">
-                    <Button variant="outline" size="icon" className="h-9 w-9" disabled={currentPage <= 1 || query.isFetching} onClick={() => setPage((value) => Math.max(1, value - 1))} aria-label="Previous page">
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    {Array.from({ length: lastPage }, (_, index) => index + 1)
-                      .filter((pageNumber) => pageNumber === 1 || pageNumber === lastPage || Math.abs(pageNumber - currentPage) <= 1)
-                      .map((pageNumber, index, visiblePages) => {
-                        const previous = visiblePages[index - 1];
-                        return (
-                          <div key={pageNumber} className="flex items-center gap-1">
-                            {previous && pageNumber - previous > 1 ? <span className="px-1 text-muted-foreground">…</span> : null}
-                            <Button variant={pageNumber === currentPage ? "default" : "outline"} size="sm" className="h-9 min-w-9 px-3" disabled={query.isFetching} onClick={() => setPage(pageNumber)}>{pageNumber}</Button>
-                          </div>
-                        );
-                      })}
-                    <Button variant="outline" size="icon" className="h-9 w-9" disabled={currentPage >= lastPage || query.isFetching} onClick={() => setPage((value) => Math.min(lastPage, value + 1))} aria-label="Next page">
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
+
             </div>
           ) : (
             <EmptyState />
@@ -241,7 +198,7 @@ function InventoryItemsTable({ rows, scope }: { rows: InventoryItem[]; scope: Sc
         </TableHeader>
         <TableBody>
           {groups.map(([category, categoryRows]) => {
-            const isCollapsed = collapsed[category] ?? false;
+            const isCollapsed = collapsed[category] ?? true;
             return (
               <Fragment key={category}>
                 <TableRow className="bg-muted/50 hover:bg-muted/70">
@@ -324,7 +281,7 @@ function InventoryRowActions({ item, scope }: { item: InventoryItem; scope: Scop
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => remove.mutate(item.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+            <AlertDialogAction disabled={remove.isPending} onClick={(event) => { event.preventDefault(); remove.mutate(item.id, { onSuccess: () => setDeleteOpen(false) }); }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

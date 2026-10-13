@@ -41,6 +41,7 @@ export interface PaginatedResponse<T> {
 // ================================
 
 export interface InventoryListParams {
+  all?: boolean;
   search?: string;
   status?: "active" | "inactive" | "all";
   low_stock?: boolean;

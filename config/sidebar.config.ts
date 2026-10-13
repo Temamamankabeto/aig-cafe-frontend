@@ -146,14 +146,11 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     group("Operations & Approval", ClipboardList, [
       { label: "Menu Management", href: "/dashboard/modules/menu", permission: "menu.read" },
       { label: "Orders", href: `${orderBase}/orders` },
-      { label: "Purchase Validation", href: "/dashboard/purchases/validation" },
       { label: "Stock-out Validation", href: "/dashboard/fb-controller/stockout-validation" },
     ]),
     group("Inventory & Reports", BarChart3, [
       { label: "Inventory Items", href: "/dashboard/inventory/items", permission: "inventory.read" },
-      { label: "Kitchen & Bar Consumption", href: "/dashboard/fb-controller/stockout-report", permission: "inventory.read" },
-      { label: "Consumption Report", href: "/dashboard/fb-controller/consumption-report", permission: "inventory.read" },
-      { label: "Sales Report", href: "/dashboard/modules/reports/sold-items", permission: "reports.sales.read" },
+      { label: "Reports", href: "/dashboard/reports/fb-finance", permission: "reports.sales.read" },
     ]),
   ]),
 

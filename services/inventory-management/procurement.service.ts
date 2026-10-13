@@ -200,6 +200,9 @@ export interface PurchaseOrderRow {
   id: number;
   po_number?: string | null;
   supplier_id: number;
+  creator?: { id: number; name?: string | null } | null;
+  requester?: { id: number; name?: string | null } | null;
+  approver?: { id: number; name?: string | null } | null;
   status: PurchaseOrderStatus;
   total?: number | string | null;
   expected_date?: string | null;
@@ -218,7 +221,7 @@ export interface PurchaseOrderRow {
 }
 
 export interface PurchaseOrderPayload {
-  supplier_id: number;
+  supplier_id?: number | null;
   expected_date?: string;
   notes?: string;
   status?: "draft" | "submitted";
@@ -231,6 +234,7 @@ export interface PurchaseOrderPayload {
 }
 
 export interface ReceiveOrderPayload {
+  receipt_number: string;
   note?: string;
   items: Array<{
     purchase_order_item_id: number;

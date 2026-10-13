@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { authService } from "@/services/auth/auth.service";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { PurchaseOrderStatus } from "@/services/inventory-management/procurement.service";
@@ -119,9 +120,9 @@ function purchaseRequestScope(): "purchaser" | "stock-keeper" {
 }
 function canCreatePurchaseOrder() {
   return (
-    can(purchasePermissions.ordersCreate) ||
+    !normalizedStoredRoles().includes("purchaser") && (can(purchasePermissions.ordersCreate) ||
     can(purchasePermissions.requestsCreate) ||
-    isStoreKeeperRole()
+    isStoreKeeperRole())
   );
 }
 function canSubmitPurchaseOrder() {
@@ -129,6 +130,7 @@ function canSubmitPurchaseOrder() {
 }
 function canApprovePurchaseOrder() {
   return (
+    normalizedStoredRoles().some((role) => ["manager", "general_admin", "cafeteria_manager"].includes(role)) ||
     can(purchasePermissions.ordersApprove) ||
     can(purchasePermissions.requestsApprove)
   );
@@ -414,17 +416,16 @@ export function PurchaseRequestsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Purchase Requests"
-        description="Store Keeper/Purchaser creates requests, Food Controller validates, Manager approves, and Store Keeper receives."
+        description="Purchase requisitions: requester → Finance budget verification → Manager approval → Store Keeper receiving."
         icon={ClipboardList}
       />
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <CardTitle>Purchase orders</CardTitle>
+              <CardTitle>Purchase requisitions</CardTitle>
               <CardDescription>
-                Flow: Draft → Submitted → Food Controller Validated → Approved →
-                Received.
+                Requested → Finance verifies budget → Manager approves → Finance prints / Purchaser views → Store Keeper receives.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 md:flex-row md:items-center">
@@ -449,7 +450,7 @@ export function PurchaseRequestsPage() {
                   <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="submitted">Submitted</SelectItem>
                   <SelectItem value="food_validated">
-                    Food Controller validated
+                    Legacy F&B validated
                   </SelectItem>
                   <SelectItem value="validation_rejected">
                     Validation rejected
@@ -470,7 +471,7 @@ export function PurchaseRequestsPage() {
                       New request
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-4xl">
+                  <DialogContent className="max-w-[96vw] sm:max-w-6xl">
                     <DialogHeader>
                       <DialogTitle>Create purchase request</DialogTitle>
                       <DialogDescription>
@@ -497,201 +498,100 @@ export function PurchaseValidationPage() {
 
 function PurchaseOrderForm({ onDone }: { onDone?: () => void }) {
   const qc = useQueryClient();
-  const suppliers = useQuery({
-    queryKey: ["procurement", "suppliers", "for-po"],
-    queryFn: () => procurementService.suppliers({ per_page: 100 }),
-  });
-  const inventory = useInventoryItemsQuery(
-    { per_page: 100, status: "active" },
-    purchaseRequestScope(),
-  );
+  const inventory = useInventoryItemsQuery({ per_page: 100, status: "active" }, purchaseRequestScope());
   const items = inventory.data?.data ?? [];
-  const [supplierId, setSupplierId] = useState("");
   const [status, setStatus] = useState<"draft" | "submitted">("submitted");
-  const [lines, setLines] = useState<
-    Array<{ inventory_item_id: string; quantity: string; unit_cost: string }>
-  >([{ inventory_item_id: "", quantity: "", unit_cost: "" }]);
+  const [department, setDepartment] = useState("AIG Cafe and Restaurant");
+  const authenticatedRequester = authService.getStoredUser();
+  const requesterName = String(authenticatedRequester?.name ?? "").trim();
+  const [purpose, setPurpose] = useState("");
+  const [lines, setLines] = useState<Array<{
+    inventory_item_id: string; specification: string; quantity: string; unit_cost: string; remarks: string;
+  }>>([{ inventory_item_id: "", specification: "", quantity: "", unit_cost: "", remarks: "" }]);
   const mutation = useMutation({
-    mutationFn: (payload: PurchaseOrderPayload) =>
-      procurementService.createPurchaseOrder(payload, purchaseRequestScope()),
+    mutationFn: (payload: PurchaseOrderPayload) => procurementService.createPurchaseOrder(payload, purchaseRequestScope()),
     onSuccess: () => {
       toast.success("Purchase request created");
       qc.invalidateQueries({ queryKey: ["procurement", "purchase-orders"] });
       onDone?.();
     },
-    onError: (error) =>
-      toast.error(extractError(error, "Failed to create purchase request")),
+    onError: (error) => toast.error(extractError(error, "Failed to create purchase request")),
   });
+  const updateLine = (index: number, patch: Partial<(typeof lines)[number]>) =>
+    setLines((current) => current.map((line, i) => i === index ? { ...line, ...patch } : line));
+  const grandTotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_cost || 0), 0);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const cleanLines = lines
-      .filter((line) => line.inventory_item_id && Number(line.quantity) > 0)
-      .map((line) => {
-        const inv = items.find(
-          (item) => String(item.id) === line.inventory_item_id,
-        );
+    const selected = lines.filter((line) => line.inventory_item_id && Number(line.quantity) > 0);
+    if (!selected.length || !purpose.trim()) {
+      toast.error("Complete the purpose and at least one item");
+      return;
+    }
+    // The existing API has no separate specification/remarks/requester columns yet.
+    // Preserve these fields in the supported notes property until the workflow migration.
+    const notes = [
+      `Requesting Department: ${department}`,
+      `Purpose / Reason for Purchase: ${purpose}`,
+      ...selected.map((line, i) => {
+        const inv = items.find((item) => String(item.id) === line.inventory_item_id);
+        return `Item ${i + 1} (${inv?.name ?? line.inventory_item_id}): Specification / Model: ${line.specification || "—"}; Remarks: ${line.remarks || "—"}`;
+      }),
+    ].join("\n");
+    mutation.mutate({
+      status, notes,
+      items: selected.map((line) => {
+        const inv = items.find((item) => String(item.id) === line.inventory_item_id);
         return {
           inventory_item_id: Number(line.inventory_item_id),
           quantity: Number(line.quantity),
           base_unit: inv?.base_unit ?? inv?.unit ?? "pc",
-          unit_cost: Number(line.unit_cost || inv?.average_purchase_price || 0),
+          unit_cost: Number(line.unit_cost || 0),
         };
-      });
-    if (!supplierId || !cleanLines.length) {
-      toast.error("Select supplier and at least one item");
-      return;
-    }
-    mutation.mutate({
-      supplier_id: Number(supplierId),
-      status,
-      items: cleanLines,
+      }),
     });
   }
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} className="max-h-[75vh] space-y-5 overflow-y-auto pr-2">
+      <div className="rounded-lg border bg-muted/30 p-4 text-center">
+        <p className="text-lg font-bold tracking-wide md:text-xl">ADAMA INVESTMENT GROUP (AIG)</p>
+        <h2 className="mt-3 text-xl font-extrabold md:text-2xl">PURCHASE REQUISITION FORM</h2>
+        <p className="font-semibold">(Purchase Request / Material Requisition)</p>
+      </div>
       <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <Label>Supplier</Label>
-          <Select value={supplierId} onValueChange={setSupplierId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select supplier" />
-            </SelectTrigger>
-            <SelectContent>
-              {(suppliers.data?.data ?? []).map((s) => (
-                <SelectItem key={s.id} value={String(s.id)}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Status</Label>
-          <Select
-            value={status}
-            onValueChange={(value) => setStatus(value as "draft" | "submitted")}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="draft">Draft</SelectItem>
-              <SelectItem value="submitted">Submit now</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <div className="space-y-1"><Label>Requesting Department</Label><Input required value={department} onChange={(e) => setDepartment(e.target.value)} /></div>
+        <div className="space-y-1 md:col-span-2"><Label>Purpose / Reason for Purchase</Label><Textarea required value={purpose} onChange={(e) => setPurpose(e.target.value)} rows={2} /></div>
       </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label>Items</Label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setLines([
-                ...lines,
-                { inventory_item_id: "", quantity: "", unit_cost: "" },
-              ])
-            }
-          >
-            Add line
-          </Button>
-        </div>
-        {lines.map((line, index) => (
-          <div
-            key={index}
-            className="grid gap-2 rounded-xl border p-3 md:grid-cols-[1fr_140px_140px_80px]"
-          >
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button type="button" variant="outline" role="combobox" className="w-full justify-between font-normal">
-                  <span className="truncate">
-                    {(() => {
-                      const selected = items.find((item) => String(item.id) === line.inventory_item_id);
-                      return selected ? `${selected.name}${selected.sku ? ` (${selected.sku})` : ""} — ${selected.base_unit ?? selected.unit ?? "pc"}` : "Inventory item";
-                    })()}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search item by name or SKU..." />
-                  <CommandList>
-                    <CommandEmpty>No inventory item found.</CommandEmpty>
-                    <CommandGroup>
-                      {items.map((item) => (
-                        <CommandItem
-                          key={item.id}
-                          value={`${item.name} ${item.sku ?? ""}`}
-                          onSelect={() => {
-                            const value = String(item.id);
-                            setLines((old) => old.map((row, i) => i === index ? {
-                              ...row,
-                              inventory_item_id: value,
-                              unit_cost: row.unit_cost || String(item.average_purchase_price ?? ""),
-                            } : row));
-                          }}
-                        >
-                          <Check className={cn("mr-2 h-4 w-4", line.inventory_item_id === String(item.id) ? "opacity-100" : "opacity-0")} />
-                          <span className="truncate">{item.name}{item.sku ? ` (${item.sku})` : ""} — {item.base_unit ?? item.unit ?? "pc"}</span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            <Input
-              value={line.quantity}
-              onChange={(event) =>
-                setLines((old) =>
-                  old.map((row, i) =>
-                    i === index
-                      ? { ...row, quantity: event.target.value }
-                      : row,
-                  ),
-                )
-              }
-              placeholder="Qty"
-              type="number"
-              step="0.001"
-            />
-            <Input
-              value={line.unit_cost}
-              onChange={(event) =>
-                setLines((old) =>
-                  old.map((row, i) =>
-                    i === index
-                      ? { ...row, unit_cost: event.target.value }
-                      : row,
-                  ),
-                )
-              }
-              placeholder="Cost"
-              type="number"
-              step="0.01"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() =>
-                setLines((old) => old.filter((_, i) => i !== index))
-              }
-            >
-              Remove
-            </Button>
-          </div>
-        ))}
+      <div className="overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[970px] border-collapse text-sm">
+          <thead className="bg-muted/50"><tr className="[&_th]:border [&_th]:p-2">
+            <th>No.</th><th className="min-w-52">Item Description</th><th>Specification / Model</th><th>Unit of Measure</th><th>Quantity</th><th>Estimated Unit Price (ETB)</th><th>Total Price (ETB)</th><th>Remarks</th><th></th>
+          </tr></thead>
+          <tbody>{lines.map((line, index) => {
+            const inv = items.find((item) => String(item.id) === line.inventory_item_id);
+            return <tr key={index} className="[&_td]:border [&_td]:p-1.5">
+              <td className="text-center">{index + 1}</td>
+              <td><Popover><PopoverTrigger asChild><Button type="button" variant="outline" className="w-full justify-between font-normal"><span className="max-w-40 truncate">{inv?.name ?? "Select item"}</span><ChevronsUpDown className="h-4 w-4" /></Button></PopoverTrigger><PopoverContent className="w-72 p-0" align="start"><Command><CommandInput placeholder="Search inventory item..." /><CommandList><CommandEmpty>No item found</CommandEmpty><CommandGroup>{items.map((item) => <CommandItem key={item.id} value={`${item.name} ${item.sku ?? ""}`} onSelect={() => updateLine(index, { inventory_item_id: String(item.id), unit_cost: line.unit_cost || String(item.average_purchase_price ?? "") })}><Check className={cn("mr-2 h-4 w-4", line.inventory_item_id === String(item.id) ? "opacity-100" : "opacity-0")} />{item.name}</CommandItem>)}</CommandGroup></CommandList></Command></PopoverContent></Popover></td>
+              <td><Input aria-label="Specification or model" value={line.specification} onChange={(e) => updateLine(index, { specification: e.target.value })} /></td>
+              <td className="text-center">{inv?.base_unit ?? inv?.unit ?? "—"}</td>
+              <td><Input aria-label="Quantity" type="number" min="0.001" step="0.001" value={line.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} /></td>
+              <td><Input aria-label="Estimated unit price" type="number" min="0" step="0.01" value={line.unit_cost} onChange={(e) => updateLine(index, { unit_cost: e.target.value })} /></td>
+              <td className="whitespace-nowrap text-right">{formatMoney(Number(line.quantity || 0) * Number(line.unit_cost || 0))}</td>
+              <td><Input aria-label="Remarks" value={line.remarks} onChange={(e) => updateLine(index, { remarks: e.target.value })} /></td>
+              <td><Button type="button" variant="ghost" size="sm" disabled={lines.length === 1} onClick={() => setLines((old) => old.filter((_, i) => i !== index))}>Remove</Button></td>
+            </tr>;
+          })}</tbody>
+          <tfoot><tr className="bg-muted/50 font-bold"><td colSpan={6} className="border p-2 text-right">Grand Total</td><td className="border p-2 text-right">{formatMoney(grandTotal)}</td><td colSpan={2} className="border" /></tr></tfoot>
+        </table>
       </div>
-      <Button
-        disabled={mutation.isPending || inventory.isLoading || !items.length}
-        type="submit"
-      >
-        <Send className="mr-2 h-4 w-4" />
-        Save request
-      </Button>
+      <Button type="button" variant="outline" onClick={() => setLines((old) => [...old, { inventory_item_id: "", specification: "", quantity: "", unit_cost: "", remarks: "" }])}><Plus className="mr-2 h-4 w-4" />Add line</Button>
+      <div className="grid gap-3 md:grid-cols-3">{[
+        ["A. Requested By", requesterName || "Authenticated user", getStoredRoles().join(", ") || "Requester"],
+        ["B. Reviewed / Verified By", "Finance", "Budget verification"],
+        ["C. Approved By", "Manager", "Final approval"],
+      ].map(([heading, name, detail]) => <div key={heading} className="rounded-md border"><div className="bg-muted/50 p-2 text-center font-bold">{heading}</div><div className="space-y-2 p-3 text-sm"><p>Name: {name}</p><p className="text-xs text-muted-foreground">{detail}</p><p>Signature: __________________</p><p>Date: _____________________</p></div></div>)}</div>
+      <div className="grid gap-3 md:grid-cols-2"><div className="space-y-1"><Label>Save as</Label><Select value={status} onValueChange={(value) => setStatus(value as "draft" | "submitted")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="submitted">Submit now</SelectItem></SelectContent></Select></div></div>
+      <p className="text-xs text-muted-foreground">Supplier selection belongs to purchasing after approval. Finance verification, Manager approval and role-specific print permissions require the separate backend workflow update.</p>
+      <Button type="submit" disabled={mutation.isPending || inventory.isLoading || !items.length}><Send className="mr-2 h-4 w-4" />Save request</Button>
     </form>
   );
 }
@@ -705,6 +605,15 @@ function PurchaseOrdersTable({
 }) {
   const qc = useQueryClient();
   const [detailPo, setDetailPo] = useState<PurchaseOrderRow | null>(null);
+  const openPurchaseDetails = async (po: PurchaseOrderRow) => {
+    setDetailPo(po);
+    try {
+      const full = await procurementService.purchaseOrder(po.id);
+      setDetailPo((current) => current?.id === po.id ? full : current);
+    } catch {
+      // Keep the list record visible if the detail endpoint is unavailable.
+    }
+  };
   const submit = useMutation({
     mutationFn: (id: number) => procurementService.submitPurchaseOrder(id),
     onSuccess: () => {
@@ -758,7 +667,7 @@ function PurchaseOrdersTable({
               {po.po_number ?? `PO-${po.id}`}
             </TableCell>
             <TableCell>
-              {po.supplier?.name ?? `Supplier #${po.supplier_id}`}
+              {po.supplier?.name ?? "Not selected (requisition)"}
             </TableCell>
             <TableCell>{statusBadge(po.status)}</TableCell>
             <TableCell>{po.items?.length ?? 0}</TableCell>
@@ -774,9 +683,9 @@ function PurchaseOrdersTable({
                     Submit
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => setDetailPo(po)}>Details</Button>
+                <Button size="sm" variant="outline" onClick={() => void openPurchaseDetails(po)}>Details</Button>
                 {canApprovePurchaseOrder() && po.status === "finance_verified" && (
-                  <Button size="sm" onClick={() => setDetailPo(po)}>
+                  <Button size="sm" onClick={() => void openPurchaseDetails(po)}>
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                     Review & Approve
                   </Button>
@@ -790,19 +699,47 @@ function PurchaseOrdersTable({
     <Dialog open={!!detailPo} onOpenChange={(open) => !open && setDetailPo(null)}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Purchase request details</DialogTitle>
-          <DialogDescription>Review supplier, requested items, F&amp;B validation and Finance budget verification.</DialogDescription>
+          <DialogTitle>Purchase requisition details</DialogTitle>
+          <DialogDescription>Purchase Request / Material Requisition — Finance budget verification and Manager approval.</DialogDescription>
         </DialogHeader>
-        {detailPo && <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">PO</p><p className="font-semibold">{detailPo.po_number ?? `PO-${detailPo.id}`}</p></div>
-            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Supplier</p><p className="font-semibold">{detailPo.supplier?.name ?? "—"}</p></div>
-            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Total</p><p className="font-semibold">{formatMoney(detailPo.total ?? 0)} ETB</p></div>
-            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Status</p>{statusBadge(detailPo.status)}</div>
-          </div>
-          {detailPo.status === "finance_verified" && <div className="rounded-lg border bg-muted/30 p-3"><p className="font-medium">Finance: Budget sufficient / verified</p><p className="text-sm text-muted-foreground">{detailPo.finance_verification_note ?? "Budget availability verified by Finance."}</p></div>}
-          <div className="max-h-72 overflow-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Quantity</TableHead><TableHead>Unit Cost</TableHead><TableHead>Line Total</TableHead></TableRow></TableHeader><TableBody>{(detailPo.items ?? []).map((line) => { const inv = line.inventory_item ?? line.inventoryItem; const unit = inv?.base_unit ?? line.unit ?? "pcs"; return <TableRow key={line.id}><TableCell>{inv?.name ?? `Item #${line.inventory_item_id}`}</TableCell><TableCell>{formatBaseQuantity(line.quantity, unit)}</TableCell><TableCell>{formatMoney(line.unit_cost)} ETB</TableCell><TableCell>{formatMoney(line.line_total ?? Number(line.quantity) * Number(line.unit_cost))} ETB</TableCell></TableRow>; })}</TableBody></Table></div>
-        </div>}
+        {detailPo && (() => {
+          const notes = detailPo.notes ?? "";
+          const noteValue = (label: string) => notes.split("\n").find((part) => part.startsWith(`${label}: `))?.slice(label.length + 2).trim() ?? "";
+          const department = noteValue("Requesting Department") || "AIG Cafe and Restaurant";
+          const purpose = noteValue("Purpose / Reason for Purchase") || "—";
+          const itemNote = (index: number) => notes.split("\n").find((part) => part.startsWith(`Item ${index + 1} (`)) ?? "";
+          const itemDetail = (index: number, field: string) => {
+            const match = itemNote(index).match(new RegExp(`${field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: (.*?)(?:; Remarks:|$)`));
+            return match?.[1]?.trim() || "—";
+          };
+          const creator = detailPo.creator?.name ?? detailPo.requester?.name ?? "—";
+          return <div className="max-h-[68vh] space-y-4 overflow-y-auto pr-1">
+            <div className="rounded-lg border bg-muted/30 p-4 text-center">
+              <p className="text-lg font-bold tracking-wide">ADAMA INVESTMENT GROUP (AIG)</p>
+              <h2 className="mt-2 text-xl font-bold">PURCHASE REQUISITION FORM</h2>
+              <p className="text-sm font-medium">(Purchase Request / Material Requisition)</p>
+            </div>
+            <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
+              <div className="space-y-2"><p><span className="font-semibold">Requesting Department:</span> {department}</p><p><span className="font-semibold">Purpose / Reason for Purchase:</span> {purpose}</p></div>
+              <div className="space-y-2"><p><span className="font-semibold">Ref. No.:</span> __________________</p><p><span className="font-semibold">Date:</span> __________________</p><div className="flex items-center gap-2"><span className="font-semibold">Status:</span>{statusBadge(detailPo.status)}</div></div>
+            </div>
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader><TableRow className="bg-muted/50"><TableHead>No.</TableHead><TableHead>Item Description</TableHead><TableHead>Specification / Model</TableHead><TableHead>Unit of Measure</TableHead><TableHead className="text-right">Quantity</TableHead><TableHead className="text-right">Estimated Unit Price (ETB)</TableHead><TableHead className="text-right">Total Price (ETB)</TableHead><TableHead>Remarks</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {(detailPo.items ?? []).map((line, index) => <TableRow key={line.id}><TableCell>{index + 1}</TableCell><TableCell>{poItemName(line)}</TableCell><TableCell>{itemDetail(index, "Specification / Model")}</TableCell><TableCell>{lineUnit(line)}</TableCell><TableCell className="text-right">{Number(line.quantity)}</TableCell><TableCell className="text-right">{formatMoney(line.unit_cost)}</TableCell><TableCell className="text-right">{formatMoney(line.line_total ?? Number(line.quantity) * Number(line.unit_cost))}</TableCell><TableCell>{itemNote(index).split("; Remarks: ")[1] || "—"}</TableCell></TableRow>)}
+                  <TableRow className="bg-muted/50 font-semibold"><TableCell colSpan={6} className="text-right">Grand Total</TableCell><TableCell className="text-right">{formatMoney(detailPo.total ?? 0)} ETB</TableCell><TableCell /></TableRow>
+                </TableBody>
+              </Table>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="overflow-hidden rounded-md border"><div className="border-b bg-muted/50 p-2 text-center font-semibold">A. Requested By</div><div className="space-y-3 p-3 text-sm"><p>Name: {creator}</p><p>Signature: __________________</p><p>Date: {detailPo.submitted_at ? new Date(detailPo.submitted_at).toLocaleDateString() : "—"}</p></div></div>
+              <div className="overflow-hidden rounded-md border"><div className="border-b bg-muted/50 p-2 text-center font-semibold">B. Reviewed / Verified By</div><div className="space-y-3 p-3 text-sm"><p>Name: {detailPo.finance_verifier?.name || "—"}</p><p>Signature: __________________</p><p>Date: {detailPo.finance_verified_at ? new Date(detailPo.finance_verified_at).toLocaleDateString() : "—"}</p></div></div>
+              <div className="overflow-hidden rounded-md border"><div className="border-b bg-muted/50 p-2 text-center font-semibold">C. Approved By</div><div className="space-y-3 p-3 text-sm"><p>Name: {detailPo.approver?.name || "—"}</p><p>Signature: __________________</p><p>Date: {detailPo.approved_at ? new Date(detailPo.approved_at).toLocaleDateString() : "—"}</p></div></div>
+            </div>
+            {detailPo.finance_verification_note && <p className="text-sm text-muted-foreground">Finance note: {detailPo.finance_verification_note}</p>}
+          </div>;
+        })()}
         <DialogFooter><Button variant="outline" onClick={() => setDetailPo(null)}>Close</Button>{detailPo && canApprovePurchaseOrder() && detailPo.status === "finance_verified" && <Button disabled={approve.isPending} onClick={() => approve.mutate(detailPo.id)}><CheckCircle2 className="mr-2 h-4 w-4"/>Approve Purchase</Button>}</DialogFooter>
       </DialogContent>
     </Dialog>
@@ -914,9 +851,6 @@ function ReceivingOrdersTable({
                 </CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={() => printPurchaseOrder(po)}>
-                  <Printer className="mr-2 h-4 w-4" />Print PO
-                </Button>
                 {canReceive && ["approved", "partially_received"].includes(po.status) && <ReceiveOrderDialog po={po} />}
               </div>
             </div>
@@ -968,9 +902,9 @@ function ReceiveOrderForm({
       purchase_order_item_id: line.id,
       quantity: String(poRemaining(line)),
       expiry_date: "",
-      batch_note: "",
     }));
   const [lines, setLines] = useState(initialLines);
+  const [receiptNumber, setReceiptNumber] = useState("");
   const mutation = useMutation({
     mutationFn: (payload: any) =>
       procurementService.receivePurchaseOrder(po.id, payload, "stock-keeper"),
@@ -985,6 +919,7 @@ function ReceiveOrderForm({
           ["Supplier", po.supplier?.name ?? "—"],
           ["Received at", receiving?.received_at ? new Date(receiving.received_at).toLocaleString() : new Date().toLocaleString()],
           ["Status", receiving?.status ?? "approved"],
+          ["Receipt Number", receiving?.receipt_number ?? receiptNumber],
         ],
         columns: [
           { key: "item", label: "Inventory item" },
@@ -1023,14 +958,14 @@ function ReceiveOrderForm({
           quantity: Number(line.quantity),
           unit: lineUnit(poLine),
           expiry_date: line.expiry_date || undefined,
-          batch_note: line.batch_note || undefined,
         };
       });
     if (!items.length) {
       toast.error("Enter at least one received quantity");
       return;
     }
-    mutation.mutate({ note: String(form.get("note") ?? ""), items });
+    if (!receiptNumber.trim()) { toast.error("Enter the delivery receipt number"); return; }
+    mutation.mutate({ receipt_number: receiptNumber.trim(), note: String(form.get("note") ?? ""), items });
   }
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -1044,7 +979,7 @@ function ReceiveOrderForm({
           return (
             <div
               key={line.purchase_order_item_id}
-              className="grid gap-2 rounded-xl border p-3 md:grid-cols-[1fr_140px_160px_1fr]"
+              className="grid gap-2 rounded-xl border p-3 md:grid-cols-[1fr_140px_160px]"
             >
               <div>
                 <p className="font-medium">
@@ -1087,22 +1022,14 @@ function ReceiveOrderForm({
                   )
                 }
               />
-              <Input
-                placeholder="Batch note"
-                value={line.batch_note}
-                onChange={(event) =>
-                  setLines((old) =>
-                    old.map((row, i) =>
-                      i === index
-                        ? { ...row, batch_note: event.target.value }
-                        : row,
-                    ),
-                  )
-                }
-              />
+
             </div>
           );
         })}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="receipt-number">Receipt Number *</Label>
+        <Input id="receipt-number" required maxLength={100} placeholder="Supplier delivery receipt number" value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} />
       </div>
       <div>
         <Label>Receiving note</Label>
