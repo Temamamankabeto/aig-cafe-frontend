@@ -106,7 +106,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     group("Operations", ClipboardList, [
       { label: "Order Monitoring", href: `${orderBase}/orders`, permission: "orders.read" },
       { label: "Staff", href: "/dashboard/users", permission: "users.read" },
-      { label: "Menu & Meal Types", href: `${orderBase}/meal-types`, permission: "menu.read" },
+      { label: "Meal Types", href: `${orderBase}/meal-types`, permission: "menu.read" },
       { label: "Customer Complaints", href: "/dashboard/cafeteria-manager/customer-complaints" },
     ]),
     group("Approvals", ShieldCheck, [

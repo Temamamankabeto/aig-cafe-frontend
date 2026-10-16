@@ -36,6 +36,9 @@ export default function MealTypesPage() {
     mutationFn: async () => {
       const payload = { name: form.name.trim(), is_active: form.is_active };
       if (!payload.name) throw new Error("Meal type name is required.");
+      if (rows.some((item) => String(item.name).trim().toLocaleLowerCase() === payload.name.toLocaleLowerCase() && String(item.id) !== String(editing?.id ?? ""))) {
+        throw new Error("A meal type with this name already exists.");
+      }
       return editing
         ? orderService.updateCreditMealType(editing.id, payload)
         : orderService.createCreditMealType(payload);
