@@ -498,7 +498,7 @@ export function PurchaseValidationPage() {
 
 function PurchaseOrderForm({ onDone }: { onDone?: () => void }) {
   const qc = useQueryClient();
-  const inventory = useInventoryItemsQuery({ per_page: 100, status: "active" }, purchaseRequestScope());
+  const inventory = useInventoryItemsQuery({ all: true }, purchaseRequestScope());
   const items = inventory.data?.data ?? [];
   const [status, setStatus] = useState<"draft" | "submitted">("submitted");
   const [department, setDepartment] = useState("AIG Cafe and Restaurant");
