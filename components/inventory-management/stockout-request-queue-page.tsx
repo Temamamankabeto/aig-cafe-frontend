@@ -77,7 +77,8 @@ export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
   };
 
   const unitFor = (row: any) => row.inventory_item?.base_unit ?? row.inventoryItem?.base_unit ?? "pcs";
-  const itemFor = (row: any) => row.inventory_item?.name ?? row.inventoryItem?.name ?? "—";
+  const itemFor = (row: any) => row.inventory_item?.name ?? row.inventoryItem?.name ?? (row.inventory_item_id != null ? `Missing inventory item (ID: ${row.inventory_item_id})` : "Missing inventory item");
+  const missingItem = (row: any) => !row.inventory_item && !row.inventoryItem;
   const responsibleFor = (row: any) => row.responsible_user?.name ?? row.responsibleUser?.name ?? row.requester?.name ?? "—";
 
   return (
@@ -118,7 +119,7 @@ export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
                 <TableCell>{row.department?.name ?? "—"}</TableCell>
                 <TableCell>{row.requester?.name ?? "—"}</TableCell>
                 <TableCell>{responsibleFor(row)}</TableCell>
-                <TableCell>{itemFor(row)}</TableCell>
+                <TableCell className={missingItem(row) ? "text-destructive font-medium" : ""}>{itemFor(row)}</TableCell>
                 <TableCell>{formatBaseQuantity(row.quantity, unitFor(row))}</TableCell>
                 <TableCell><Badge variant="secondary">{row.status}</Badge></TableCell>
                 <TableCell>
@@ -133,7 +134,7 @@ export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
                       <Button size="sm" variant="destructive" onClick={() => openAction(row, "reject")}>Reject</Button>
                     </>}
                     {mode === "issue" && row.status === "approved" &&
-                      <Button size="sm" onClick={() => openAction(row, "issue")}>Receive & Issue</Button>}
+                      <Button size="sm" disabled={missingItem(row)} title={missingItem(row) ? "Cannot issue: referenced inventory item is missing" : undefined} onClick={() => openAction(row, "issue")}>Receive & Issue</Button>}
                   </div>
                 </TableCell>
               </TableRow>
@@ -169,6 +170,7 @@ export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
                 <div className="text-xs text-muted-foreground">{label}</div><div className="font-medium">{value}</div>
               </div>)}
             </div>
+            {missingItem(actionRow) && <p className="text-sm font-medium text-destructive">Cannot issue: the referenced inventory item is missing. Contact an administrator to investigate the request.</p>}
             <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">Reason</div><div className="mt-1 whitespace-pre-wrap">{detailRow.reason || "—"}</div></div>
             {detailRow.validation_note && <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">F&B Validation Note</div><div className="mt-1">{detailRow.validation_note}</div></div>}
             {detailRow.approval_note && <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">Manager Approval Note</div><div className="mt-1">{detailRow.approval_note}</div></div>}
@@ -200,6 +202,7 @@ export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
               <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">Responsible User</div><div className="font-semibold">{responsibleFor(actionRow)}</div></div>
               <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">Item / Quantity</div><div className="font-semibold">{itemFor(actionRow)} — {formatBaseQuantity(actionRow.quantity, unitFor(actionRow))}</div></div>
             </div>
+            {missingItem(actionRow) && <p className="text-sm font-medium text-destructive">Cannot issue: the referenced inventory item is missing. Contact an administrator to investigate the request.</p>}
             <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">Reason</div><div className="mt-1">{actionRow.reason || "—"}</div></div>
             {(actionType === "validate" || actionType === "approve" || actionType === "reject") && <div>
               <Label>{actionType === "reject" ? "Rejection reason *" : actionType === "validate" ? "F&B validation note" : "Manager approval note"}</Label>
@@ -211,7 +214,7 @@ export function StockoutRequestQueuePage({ mode }: { mode: QueueMode }) {
             <Button variant="outline" onClick={closeAction}>Cancel</Button>
             <Button
               variant={actionType === "reject" ? "destructive" : "default"}
-              disabled={action.isPending || (actionType === "reject" && !note.trim())}
+              disabled={action.isPending || (actionType === "reject" && !note.trim()) || (actionType === "issue" && !!actionRow && missingItem(actionRow))}
               onClick={() => actionRow && actionType && action.mutate({ row: actionRow, type: actionType })}
             >
               {action.isPending ? "Processing..." :
