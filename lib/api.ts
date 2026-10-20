@@ -10,6 +10,7 @@ const API_BASE_URL = rawApiUrl.replace(/\/+$/, "").endsWith("/api")
   : `${rawApiUrl.replace(/\/+$/, "")}/api`;
 
 type RetriableRequestConfig = InternalAxiosRequestConfig & {
+  skipAuthRedirect?: boolean;
   _retry?: boolean;
 };
 
@@ -96,11 +97,16 @@ api.interceptors.response.use(
     const originalRequest = error.config as RetriableRequestConfig | undefined;
     const status = error.response?.status;
     const url = originalRequest?.url ?? "";
+    // Public waiter endpoints authenticate with credentials in the request body,
+    // not the dashboard session. A 401 must never redirect a shared device.
+    const publicWaiterRequest = url.startsWith("/public/waiter-orders");
 
     if (
       status === 401 &&
       originalRequest &&
       !originalRequest._retry &&
+      !publicWaiterRequest &&
+      !originalRequest.skipAuthRedirect &&
       !url.includes("/auth/login") &&
       !url.includes("/auth/register") &&
       !url.includes("/auth/refresh") &&
@@ -130,7 +136,7 @@ api.interceptors.response.use(
       error.message ||
       "Request failed";
 
-    if (status === 401) {
+    if (status === 401 && !publicWaiterRequest && !originalRequest?.skipAuthRedirect) {
       clearSession();
 
       if (isBrowser() && !window.location.pathname.includes("/login")) {

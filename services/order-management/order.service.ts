@@ -142,6 +142,7 @@ export const orderService = {
   async disableCreditAgreement(accountId: string|number, agreementId: string|number) { const res = await api.patch(`/credit/accounts/${accountId}/agreements/${agreementId}/disable`); return unwrap<ApiEnvelope<CreditAgreement>>(res); },
   async toggleCreditAccount(id: string|number) { const res = await api.patch(`/credit/accounts/${id}/toggle`); return unwrap<ApiEnvelope<CreditAccount>>(res); },
   async scanCreditCard(cardNumber: string) { const res = await api.get('/credit/cards/scan', { params: { card_number: cardNumber } }); return unwrap<ApiEnvelope<any>>(res); },
+  async financePosCreditOrders(params: OrderFilters = {}) { const res = await api.get('/credit/finance-pos-orders', { params: clean(params) }); return page<CreditOrder>(res.data); },
   async creditOrders(params: OrderFilters = {}) { const res = await api.get('/credit/orders', { params: clean(params) }); return page<CreditOrder>(res.data); },
   async creditAgreementStatement(agreementId: string|number) { const res = await api.get(`/credit/agreements/${agreementId}/statement`); const body = unwrap<ApiEnvelope<any>>(res); return body.data; },
   async settleCreditAgreementOrders(agreementId: string|number, payload: { order_ids: Id[]; payment_method: PaymentMethod; reference_number?: string | null; notes?: string | null }) { const res = await api.post(`/credit/agreements/${agreementId}/settle-orders`, payload); return unwrap<ApiEnvelope<CreditOrder[]>>(res); },

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ReceiptText, RefreshCcw, Search, WalletCards } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import api, { unwrap } from "@/lib/api";
+import { FinanceCreditPaymentRequest } from "@/components/finance-management/finance-credit-payment-request";
 import { PaymentManagementPage } from "@/components/payment-management/payment-management-page";
 import { RefundManagementPage } from "@/components/refund-management/refund-management-page";
 import { Badge } from "@/components/ui/badge";
@@ -230,7 +231,7 @@ function ReceiptsTab({ scope }: { scope: Scope }) {
 
 export function FinanceManagementPage({ scope = "admin", initialTab = "payments", billStatus }: { scope?: Scope; initialTab?: "payments" | "bills" | "receipts"; billStatus?: string }) {
   if (scope === "admin" && initialTab === "payments") {
-    return <PaymentManagementPage scope="admin" />;
+    return <Tabs defaultValue="cash" className="space-y-4"><TabsList><TabsTrigger value="cash">Cash Payments</TabsTrigger><TabsTrigger value="credit">Credit Payments</TabsTrigger></TabsList><TabsContent value="cash"><PaymentManagementPage scope="admin" /></TabsContent><TabsContent value="credit"><FinanceCreditPaymentRequest /></TabsContent></Tabs>;
   }
 
   if (scope === "admin" && initialTab === "bills") {

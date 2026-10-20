@@ -10,9 +10,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 type Sale = { report_date: string; sale_type: "cash" | "credit"; category: string; item_name: string; quantity: number; amount: number };
+type CreditSale = { report_date:string; order_id:number; order_number:string; credit_account_id:number|null; credit_account:string; credit_agreement_id:number|null; authorized_person:string; item_name:string; quantity:number; amount:number };
+type CreditFilters = {accounts:{id:number;name:string}[];agreements:{id:number;credit_account_id:number;meal_type:string;status:string}[];persons:{credit_account_id:number;credit_agreement_id:number|null;name:string}[]};
 type Consumption = { report_date: string; item_name: string; unit: string; quantity: number; amount: number };
 type Daily = { date: string; cash: number; credit: number; revenue: number; expenses: number | null; result: number | null };
-type Report = { success: boolean; data: { sales: Sale[]; consumption: Consumption[]; daily: Daily[]; finance_details_available: boolean } };
+type Report = { success: boolean; data: { sales: Sale[]; consumption: Consumption[]; daily: Daily[]; finance_details_available: boolean; credit_sales:CreditSale[]; credit_filters:CreditFilters } };
 type Tab = "cash" | "credit" | "consumption" | "summary";
 const amount = (v: number | null | undefined) => v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
@@ -21,6 +23,10 @@ const tabLabels: Record<Tab,string> = {cash:"Cash Sales",credit:"Credit Sales",c
 export function FbFinanceReportsPage() {
   const [tab,setTab] = useState<Tab>("cash");
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
+  const [account,setAccount] = useState("");
+  const [agreement,setAgreement] = useState("");
+  const [person,setPerson] = useState("");
+  const [expandedCredit,setExpandedCredit] = useState<string[]>([]);
   const [period,setPeriod] = useState("today");
   const [from,setFrom] = useState(iso(new Date()));
   const [to,setTo] = useState(iso(new Date()));
@@ -34,8 +40,8 @@ export function FbFinanceReportsPage() {
   };
   const valid = !!from && !!to && from <= to;
   const report = useQuery<Report>({
-    queryKey:["fb-finance-reports",from,to],
-    queryFn:async()=> (await api.get("/reports/fb-finance",{params:{date_from:from,date_to:to}})).data,
+    queryKey:["fb-finance-reports",from,to,account,agreement,person],
+    queryFn:async()=> (await api.get("/reports/fb-finance",{params:{date_from:from,date_to:to,...(account?{credit_account_id:account}:{}),...(agreement?{credit_agreement_id:agreement}:{}),...(person?{authorized_person:person}:{})}})).data,
     enabled:valid,
   });
   const data = report.data?.data;
@@ -52,6 +58,18 @@ export function FbFinanceReportsPage() {
     }
     return Array.from(grouped.values()).sort((a, b) => a.category.localeCompare(b.category));
   }, [sales]);
+  const creditSales = data?.credit_sales ?? [];
+  const creditGroups = useMemo(() => {
+    const groups = new Map<string,{name:string;people:Map<string,CreditSale[]>}>();
+    for(const row of creditSales){
+      const key=String(row.credit_account_id);
+      if(!groups.has(key)) groups.set(key,{name:row.credit_account,people:new Map()});
+      const people=groups.get(key)!.people;
+      if(!people.has(row.authorized_person)) people.set(row.authorized_person,[]);
+      people.get(row.authorized_person)!.push(row);
+    }
+    return [...groups.entries()];
+  },[creditSales]);
   const isSalesTab = tab === "cash" || tab === "credit";
   const toggleCategory = (category: string) => setExpandedCategories(current =>
     current.includes(category) ? current.filter(value => value !== category) : [...current, category]
@@ -70,12 +88,14 @@ export function FbFinanceReportsPage() {
     : tab==="consumption"
     ? consumption.map(r=>[r.report_date,r.item_name,r.unit,r.quantity,amount(r.amount)])
     : daily.map(r=>[r.date,amount(r.cash),amount(r.credit),amount(r.revenue),amount(r.expenses),amount(r.result)]);
-  const total = tab==="cash"||tab==="credit" ? sales.reduce((a,r)=>a+Number(r.amount),0)
+  const total = tab==="credit" ? creditSales.reduce((a,r)=>a+Number(r.amount),0) : tab==="cash" ? sales.reduce((a,r)=>a+Number(r.amount),0)
     : tab==="consumption" ? consumption.reduce((a,r)=>a+Number(r.amount),0)
     : daily.reduce((a,r)=>a+Number(r.revenue),0);
+  const exportHeaders = tab === "credit" ? ["Credit Account","Agreement","Authorized Person","Order","Date","Item","Quantity","Total (ETB)"] : headers;
+  const exportRows:(string|number)[][] = tab === "credit" ? creditSales.map(r=>[r.credit_account,r.credit_agreement_id ?? "",r.authorized_person,r.order_number,r.report_date,r.item_name,r.quantity,amount(r.amount)]) : rows;
   const csv = () => {
     const esc=(v:string|number)=>`"${String(v).replace(/"/g,'""')}"`;
-    const content=[headers,...rows].map(row=>row.map(esc).join(",")).join("\r\n");
+    const content=[exportHeaders,...exportRows].map(row=>row.map(esc).join(",")).join("\r\n");
     const url=URL.createObjectURL(new Blob(["\ufeff"+content],{type:"text/csv;charset=utf-8"}));
     const a=document.createElement("a");a.href=url;a.download=`aig-${tab}-${from}-${to}.csv`;a.click();URL.revokeObjectURL(url);
   };
@@ -94,11 +114,21 @@ export function FbFinanceReportsPage() {
         <Button variant="outline" disabled={!data || report.isFetching} onClick={csv}>Export CSV (Excel)</Button>
         <Button variant="outline" disabled={!data || report.isFetching} onClick={()=>window.print()}>Print / PDF</Button>
       </div>
+      {tab === "credit" && <div className="grid gap-3 md:grid-cols-3 print:hidden">
+        <label className="text-sm">Credit account<select aria-label="Credit account" className="block w-full rounded-md border bg-background p-2" value={account} onChange={e=>{setAccount(e.target.value);setAgreement("");setPerson("");}}><option value="">All accounts</option>{(data?.credit_filters?.accounts??[]).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+        <label className="text-sm">Agreement<select aria-label="Agreement" className="block w-full rounded-md border bg-background p-2" value={agreement} onChange={e=>{setAgreement(e.target.value);setPerson("");}}><option value="">All agreements</option>{(data?.credit_filters?.agreements??[]).filter(a=>!account||String(a.credit_account_id)===account).map(a=><option key={a.id} value={a.id}>#{a.id} — {a.meal_type}</option>)}</select></label>
+        <label className="text-sm">Authorized person<select aria-label="Authorized person" className="block w-full rounded-md border bg-background p-2" value={person} onChange={e=>setPerson(e.target.value)}><option value="">All persons</option>{[...new Set((data?.credit_filters?.persons??[]).filter(p=>(!account||String(p.credit_account_id)===account)&&(!agreement||String(p.credit_agreement_id)===agreement)).map(p=>p.name).filter(Boolean))].map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+      </div>}
       <div className="hidden print:block text-center"><h2 className="font-bold text-lg">ADAMA INVESTMENT GROUP (AIG)</h2><h3 className="font-semibold">{tabLabels[tab]}</h3><p>{from} — {to}</p></div>
       {!valid && <p className="text-destructive">Choose a valid date range.</p>}
       {report.isLoading && <p>Loading report...</p>}
       {report.isError && <p className="text-destructive">Unable to load report. Check your account permissions and backend deployment.</p>}
-      {data && <><div className="overflow-x-auto"><Table><TableHeader><TableRow>{headers.map(h=><TableHead key={h}>{h}</TableHead>)}</TableRow></TableHeader><TableBody>
+      {data && tab === "credit" && <><div className="overflow-x-auto"><Table><TableHeader><TableRow>{["Credit Account / Authorized Person / Order","Quantity","Total (ETB)"].map(h=><TableHead key={h}>{h}</TableHead>)}</TableRow></TableHeader><TableBody>
+        {creditGroups.map(([id,group])=>{const all=[...group.people.values()].flat();const open=expandedCredit.includes(`a${id}`);return <TableRow key={`account-${id}`} className="font-semibold"><TableCell><button onClick={()=>setExpandedCredit(v=>open?v.filter(x=>x!==`a${id}`):[...v,`a${id}`])} className="inline-flex items-center gap-2">{open?<ChevronDown className="h-4 w-4"/>:<ChevronRight className="h-4 w-4"/>}{group.name}</button></TableCell><TableCell>{all.reduce((n,r)=>n+Number(r.quantity),0)}</TableCell><TableCell>{amount(all.reduce((n,r)=>n+Number(r.amount),0))}</TableCell></TableRow>})}
+        {creditGroups.flatMap(([id,group])=>expandedCredit.includes(`a${id}`)?[...group.people.entries()].flatMap(([name,items])=>{const key=`p${id}:${name}`,open=expandedCredit.includes(key);return [<TableRow key={key} className="font-medium"><TableCell className="pl-8"><button className="inline-flex items-center gap-2" onClick={()=>setExpandedCredit(v=>open?v.filter(x=>x!==key):[...v,key])}>{open?<ChevronDown className="h-4 w-4"/>:<ChevronRight className="h-4 w-4"/>}{name}</button></TableCell><TableCell>{items.reduce((n,r)=>n+Number(r.quantity),0)}</TableCell><TableCell>{amount(items.reduce((n,r)=>n+Number(r.amount),0))}</TableCell></TableRow>,...(open?items.map((r,i)=><TableRow key={`${key}-${r.order_id}-${i}`}><TableCell className="pl-14">{r.order_number} · {r.report_date} · {r.item_name}</TableCell><TableCell>{r.quantity}</TableCell><TableCell>{amount(r.amount)}</TableCell></TableRow>):[])];}):[])}
+        {!creditSales.length&&<TableRow><TableCell colSpan={3} className="text-center">No credit sales found for the selected filters.</TableCell></TableRow>}
+      </TableBody></Table></div><p className="text-right font-semibold">Total Credit Sales: {amount(total)} ETB</p></>}
+      {data && tab !== "credit" && <><div className="overflow-x-auto"><Table><TableHeader><TableRow>{headers.map(h=><TableHead key={h}>{h}</TableHead>)}</TableRow></TableHeader><TableBody>
         {isSalesTab ? categorySales.map(group => <>{/* Category totals always reflect the complete date-filtered result. */}
           <TableRow key={`${tab}-${group.category}-category`} className="font-semibold">
             <TableCell>—</TableCell>

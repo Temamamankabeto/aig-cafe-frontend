@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { authService } from "@/services/auth/auth.service";
 import { orderService } from "@/services/order-management/order.service";
@@ -2836,6 +2837,7 @@ export function CreditAccountsPage() {
 
 export function CreditOrdersPage() {
   const [settle, setSettle] = useState<CreditOrder | null>(null);
+  const [expandedCreditOrders, setExpandedCreditOrders] = useState<string[]>([]);
   const [amount, setAmount] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Array<string | number>>([]);
   const [filters, setFilters] = useState({
@@ -3243,9 +3245,16 @@ export function CreditOrdersPage() {
                   const checked = selectedIds.some((id) => String(id) === String(c.id));
 
                   return (
-                    <TableRow key={c.id}>
+                    <Fragment key={c.id}>
+                    <TableRow>
                       {["finance", "manager"].includes(role) && <TableCell><Checkbox checked={checked} disabled={(role === "finance" ? !canSettle : pendingSettlements.length === 0) || filters.credit_agreement_id === "all"} onCheckedChange={(value) => toggleRow(c.id, Boolean(value))} aria-label={`Select credit order ${c.credit_reference ?? c.id}`} /></TableCell>}
-                      <TableCell>{c.credit_reference ?? c.order?.order_number ?? c.id}</TableCell>
+                      <TableCell>
+                        <button type="button" className="flex items-center gap-2 text-left font-medium underline-offset-2 hover:underline" aria-expanded={expandedCreditOrders.includes(String(c.id))} onClick={() => setExpandedCreditOrders((current) => current.includes(String(c.id)) ? current.filter((id) => id !== String(c.id)) : [...current, String(c.id)])}>
+                          <span aria-hidden="true">{expandedCreditOrders.includes(String(c.id)) ? "▾" : "▸"}</span>
+                          {c.order?.order_number ?? c.credit_reference ?? c.id}
+                          <span className="text-xs text-muted-foreground">({c.order?.items?.length ?? 0} items)</span>
+                        </button>
+                      </TableCell>
                       <TableCell>{account?.name ?? "—"}</TableCell>
                       <TableCell>#{c.credit_agreement_id ?? c.agreement?.id ?? "—"}</TableCell>
                       <TableCell><StatusBadge status={c.status} /></TableCell>
@@ -3265,6 +3274,25 @@ export function CreditOrdersPage() {
                         ))}
                       </TableCell>
                     </TableRow>
+                    {expandedCreditOrders.includes(String(c.id)) && (
+                      <TableRow>
+                        <TableCell colSpan={["finance", "manager"].includes(role) ? 10 : 9}>
+                          <div className="rounded-md border p-3">
+                            <p className="mb-2 text-sm font-semibold">Ordered items · Authorized person: {c.used_by_name ?? "—"}</p>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead><tr className="border-b text-left"><th className="py-2">Item</th><th>Qty</th><th>Unit price</th><th>Total</th></tr></thead>
+                                <tbody>{(c.order?.items ?? []).map((item: any) => (
+                                  <tr key={item.id} className="border-b last:border-0"><td className="py-2">{item.menu_item?.name ?? item.name ?? "Item"}</td><td>{item.quantity}</td><td>{money(item.unit_price ?? item.price)}</td><td>{money(item.total ?? item.subtotal ?? Number(item.quantity ?? 0) * Number(item.unit_price ?? item.price ?? 0))}</td></tr>
+                                ))}</tbody>
+                              </table>
+                              {!c.order?.items?.length && <p className="py-2 text-muted-foreground">No item details available for this order.</p>}
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </Fragment>
                   );
                 })
               ) : (
@@ -3297,6 +3325,7 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
   const [filters, setFilters] = useState({ status: "all", scope: "today", per_page: 30 });
   const query = usePrepTicketsQuery(kind, filters);
   const action = usePrepTicketActionMutation();
+  const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
   const rows = query.data?.data ?? [];
   const title = kind === "kitchen" ? "Kitchen Tickets" : "Bar Tickets";
 
@@ -3307,6 +3336,19 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
   function canAccept(status?: string) { return ["pending", "confirmed"].includes(String(status ?? "").toLowerCase()); }
   function canReady(status?: string) { return ["preparing"].includes(String(status ?? "").toLowerCase()); }
   function canServed(status?: string) { return ["ready"].includes(String(status ?? "").toLowerCase()); }
+
+  const grouped = Object.values(rows.reduce((acc: Record<string, any>, ticket: any) => {
+    const key = String(ticket.order_id ?? ticket.order?.id ?? `ticket-${ticket.id}`);
+    if (!acc[key]) acc[key] = { key, number: ticket.order?.order_number ?? ticket.order_number ?? String(ticket.order_id ?? ticket.id), tickets: [] };
+    acc[key].tickets.push(ticket);
+    return acc;
+  }, {} as Record<string, any>)) as Array<{key: string; number: string; tickets: any[]}>;
+  const toggleOrder = (key: string) => setExpandedOrders((current) => current.includes(key) ? current.filter((id) => id !== key) : [...current, key]);
+  const groupStatus = (tickets: any[]) => {
+    const statuses = tickets.map((ticket) => String(ticket.status ?? "confirmed").toLowerCase());
+    return statuses.every((status) => status === statuses[0]) ? statuses[0] : "mixed";
+  };
+  const waiterName = (ticket: any) => ticket.waiter?.name ?? ticket.order?.waiter?.name ?? ticket.waiter_name ?? ticket.order?.waiter_name ?? "—";
 
   return (
     <div className="space-y-6">
@@ -3340,25 +3382,44 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
         <CardContent className="pt-6">
           <div className="overflow-x-auto rounded-xl border">
             <Table>
-              <TableHeader><TableRow><TableHead>Ticket</TableHead><TableHead>Order</TableHead><TableHead>Item</TableHead><TableHead>Waiter/Table</TableHead><TableHead>Status</TableHead><TableHead>Created</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Order Number (Items)</TableHead><TableHead>Waiter</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
               <TableBody>
-                {query.isLoading ? <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">Loading tickets...</TableCell></TableRow> : rows.length ? rows.map((ticket: any) => {
-                  const status = String(ticket.status ?? "confirmed").toLowerCase();
-                  return <TableRow key={ticket.id}>
-                    <TableCell className="font-medium">{ticket.ticket_number ?? `#${ticket.id}`}</TableCell>
-                    <TableCell>{ticket.order?.order_number ?? ticket.order_id ?? "—"}</TableCell>
-                    <TableCell>{ticketName(ticket)}<div className="text-xs text-muted-foreground">Qty: {ticket.order_item?.quantity ?? ticket.quantity ?? 1}</div></TableCell>
-                    <TableCell>{ticket.waiter?.name ?? ticket.order?.waiter?.name ?? "—"}<div className="text-xs text-muted-foreground">{ticket.table?.table_number ?? ticket.order?.table?.table_number ?? "No table"}</div></TableCell>
-                    <TableCell><StatusBadge status={status} /></TableCell>
-                    <TableCell>{date(ticket.created_at)}</TableCell>
-                    <TableCell className="text-right"><div className="flex justify-end gap-2">
-                      {canAccept(status) && <Button size="sm" onClick={() => action.mutate({ kind, id: ticket.id, action: "accept" })}>Accept</Button>}
-                      {canReady(status) && <Button size="sm" onClick={() => action.mutate({ kind, id: ticket.id, action: "ready" })}>Ready</Button>}
-                      {canServed(status) && <Button size="sm" variant="outline" onClick={() => action.mutate({ kind, id: ticket.id, action: "served" })}>Served</Button>}
-                      {!canAccept(status) && !canReady(status) && !canServed(status) && <Button size="sm" variant="ghost" disabled>No action</Button>}
-                    </div></TableCell>
-                  </TableRow>;
-                }) : <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No tickets found.</TableCell></TableRow>}
+                {query.isLoading ? <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">Loading tickets...</TableCell></TableRow> : grouped.length ? grouped.map((group) => {
+                  const expanded = expandedOrders.includes(group.key);
+                  const status = groupStatus(group.tickets);
+                  return <Fragment key={group.key}>
+                    <TableRow>
+                      <TableCell>
+                        <button type="button" aria-expanded={expanded} aria-label={`${expanded ? "Collapse" : "Expand"} order ${group.number}`} onClick={() => toggleOrder(group.key)} className="flex items-center gap-2 text-left font-medium hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+                          <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                          <span>{group.number}<span className="ml-2 text-xs font-normal text-muted-foreground">({group.tickets.length} items)</span></span>
+                        </button>
+                      </TableCell>
+                      <TableCell>{waiterName(group.tickets[0])}</TableCell>
+                      <TableCell>{status === "mixed" ? <Badge variant="secondary">Mixed</Badge> : <StatusBadge status={status} />}</TableCell>
+                      <TableCell className="text-right"><span className="text-xs text-muted-foreground">Expand for item actions</span></TableCell>
+                    </TableRow>
+                    {expanded && <TableRow><TableCell colSpan={4} className="bg-muted/30 p-3">
+                      <div className="overflow-x-auto rounded-lg border bg-background">
+                        <Table><TableHeader><TableRow><TableHead>Item / Ticket</TableHead><TableHead>Qty</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                          <TableBody>{group.tickets.map((ticket: any) => {
+                            const itemStatus = String(ticket.status ?? "confirmed").toLowerCase();
+                            return <TableRow key={ticket.id}>
+                              <TableCell><span className="font-medium">{ticketName(ticket)}</span><div className="text-xs text-muted-foreground">{ticket.ticket_number ?? `#${ticket.id}`}</div></TableCell>
+                              <TableCell>{ticket.order_item?.quantity ?? ticket.quantity ?? 1}</TableCell>
+                              <TableCell><StatusBadge status={itemStatus} /></TableCell>
+                              <TableCell className="text-right"><div className="flex justify-end gap-2">
+                                {canAccept(itemStatus) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "accept" })}>Accept</Button>}
+                                {canReady(itemStatus) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "ready" })}>Ready</Button>}
+                                {canServed(itemStatus) && <Button size="sm" variant="outline" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "served" })}>Served</Button>}
+                                {!canAccept(itemStatus) && !canReady(itemStatus) && !canServed(itemStatus) && <span className="text-xs text-muted-foreground">No action</span>}
+                              </div></TableCell>
+                            </TableRow>;
+                          })}</TableBody></Table>
+                      </div>
+                    </TableCell></TableRow>}
+                  </Fragment>;
+                }) : <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">No tickets found.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>
