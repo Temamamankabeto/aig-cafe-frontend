@@ -106,7 +106,12 @@ export default function LoginPage() {
 
   return (
     <>
-      <div className="fixed right-4 top-4 z-[100]"><LanguageSwitcher /></div>
+      <nav aria-label="Public navigation" className="fixed left-4 right-4 top-4 z-[100] flex items-center justify-between gap-3">
+        <a href="/waiter-order" className="inline-flex min-h-10 items-center rounded-lg border border-[#f4be4b]/60 bg-[#071f42]/95 px-4 text-sm font-semibold text-[#f4be4b] shadow-lg transition hover:bg-[#0a2850] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]">
+          Waiter Ordering
+        </a>
+        <LanguageSwitcher />
+      </nav>
     <main className="relative min-h-[100dvh] overflow-x-hidden bg-[#041a38] text-white">
       {/* Desktop/tablet reference layout: preserve the existing exact design. */}
       <div className="absolute inset-0 hidden md:block">
