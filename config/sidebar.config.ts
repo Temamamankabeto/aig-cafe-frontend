@@ -147,6 +147,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
       { label: "Menu Management", href: "/dashboard/modules/menu", permission: "menu.read" },
       { label: "Orders", href: `${orderBase}/orders` },
       { label: "Stock-out Validation", href: "/dashboard/fb-controller/stockout-validation" },
+      { label: "Stock Adjustment Validation", href: "/dashboard/fb-controller/stock-adjustment-validation" },
     ]),
     group("Inventory & Reports", BarChart3, [
       { label: "Inventory Items", href: "/dashboard/inventory/items", permission: "inventory.read" },
