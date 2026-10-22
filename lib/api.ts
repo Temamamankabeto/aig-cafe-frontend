@@ -57,9 +57,10 @@ const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: Number(process.env.NEXT_PUBLIC_API_TIMEOUT ?? 15000),
   withCredentials: true,
+  // Do not force JSON for file uploads. Axios serializes plain objects as JSON
+  // and lets the browser set the multipart boundary for FormData requests.
   headers: {
     Accept: "application/json",
-    "Content-Type": "application/json",
   },
 });
 
@@ -71,6 +72,14 @@ const refreshClient = axios.create({
     Accept: "application/json",
     "Content-Type": "application/json",
   },
+});
+
+// Preserve native multipart encoding for bank-slip and other file uploads.
+api.interceptors.request.use((config) => {
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    config.headers.setContentType(undefined);
+  }
+  return config;
 });
 
 let refreshPromise: Promise<boolean> | null = null;

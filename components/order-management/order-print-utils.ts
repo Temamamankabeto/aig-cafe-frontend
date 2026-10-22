@@ -385,6 +385,7 @@ function customerOrderTicketBody(order?: PrintableOrder) {
     ${customerTicketHeader()}
     ${baseInfo(order)}
     ${waiterInfoHtml(order)}
+    ${order?.payment_type === "credit" && Number(order?.number_of_person) > 0 ? `<div class="meta"><span>Number of persons</span><strong>${Number(order.number_of_person)}</strong></div>` : ""}
     <div class="section-title">Ordered Items</div>
     <table><thead><tr><th>Item</th><th class="center">Qty</th><th class="right">Station</th></tr></thead><tbody>${rowsHtml(items, false)}</tbody></table>
     <div class="footer">Keep this ticket for pickup and billing.</div>

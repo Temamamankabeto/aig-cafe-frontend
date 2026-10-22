@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, FileText, MoreHorizontal, Pencil, Plus, Printer, Trash2, UserPlus } from "lucide-react";
@@ -62,10 +62,6 @@ function emptyAgreement(): AgreementForm {
 
 function active(value: unknown) {
   return value === true || value === 1 || value === "1";
-}
-
-function money(value: unknown) {
-  return Number(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtDate(value?: string | null) {
@@ -165,7 +161,6 @@ export default function CreditAccountDetailPage() {
   const agreements = ((account as any)?.agreements ?? []) as CreditAgreement[];
   const mealTypes = mealTypesQuery.data ?? [];
   const activeMealTypes = mealTypes.filter((item) => active(item.is_active ?? true));
-  const totalValue = useMemo(() => agreements.reduce((sum, row) => sum + Number(row.total_price ?? 0), 0), [agreements]);
 
   function refresh() {
     accountQuery.refetch();
@@ -283,29 +278,24 @@ export default function CreditAccountDetailPage() {
             <Link href="/dashboard/order-management/credit-accounts"><ArrowLeft className="mr-2 h-4 w-4" />Back to credit accounts</Link>
           </Button>
           <h1 className="text-2xl font-bold">{account.name}</h1>
-          <p className="text-muted-foreground">{canManageMealTypes ? "Manage meal types, agreements, and authorized-person login access." : "Manage agreements and authorized-person login access."}</p>
         </div>
         <Button variant="outline" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print</Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card><CardHeader><CardDescription>Account No.</CardDescription><CardTitle>CR-{String(account.id).padStart(6, "0")}</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>Account type</CardDescription><CardTitle className="capitalize">{account.account_type ?? "—"}</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>Agreements</CardDescription><CardTitle>{agreements.length}</CardTitle></CardHeader></Card>
-        <Card><CardHeader><CardDescription>Agreement value</CardDescription><CardTitle>{money(totalValue)}</CardTitle></CardHeader></Card>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Account No.</p><p className="mt-1 font-semibold">CR-{String(account.id).padStart(6, "0")}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Account type</p><p className="mt-1 font-semibold capitalize">{account.account_type ?? "—"}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Agreements</p><p className="mt-1 font-semibold">{agreements.length}</p></CardContent></Card>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Account information</CardTitle>
-          <CardDescription>Authorized persons receive a Customer login account. Their phone number is their login identifier and initial password.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-5 md:grid-cols-3">
-          <div><p className="text-xs text-muted-foreground">Account name</p><p className="font-semibold">{account.name}</p></div>
-          <div><p className="text-xs text-muted-foreground">TIN number</p><p className="font-semibold">{account.tin_number ?? "—"}</p></div>
+        <CardHeader className="pb-3"><CardTitle className="text-lg">Account information</CardTitle></CardHeader>
+        <CardContent className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+          <div><p className="text-xs text-muted-foreground">Account name</p><p className="font-medium">{account.name}</p></div>
+          <div><p className="text-xs text-muted-foreground">TIN number</p><p className="font-medium">{account.tin_number ?? "—"}</p></div>
+          <div><p className="text-xs text-muted-foreground">Representative</p><p className="font-medium">{account.representative_name ?? "—"}</p></div>
+          <div><p className="text-xs text-muted-foreground">Representative phone</p><p className="font-medium">{account.representative_phone ?? "—"}</p></div>
           <div><p className="text-xs text-muted-foreground">Status</p><Badge variant={String(account.status) === "active" ? "outline" : "destructive"}>{account.status ?? "active"}</Badge></div>
-          <div><p className="text-xs text-muted-foreground">Representative</p><p className="font-semibold">{account.representative_name ?? "—"}</p></div>
-          <div><p className="text-xs text-muted-foreground">Representative phone</p><p className="font-semibold">{account.representative_phone ?? "—"}</p></div>
         </CardContent>
       </Card>
 
@@ -346,7 +336,6 @@ export default function CreditAccountDetailPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle>Agreements</CardTitle>
-            <CardDescription>Each active agreement must have meal type(s) and at least one active authorized person.</CardDescription>
           </div>
           <Button onClick={openCreateAgreement}><FileText className="mr-2 h-4 w-4" />Add agreement</Button>
         </CardHeader>
@@ -354,8 +343,7 @@ export default function CreditAccountDetailPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Meal type(s)</TableHead><TableHead>Person(s)</TableHead><TableHead>Price / person</TableHead>
-                <TableHead>Date range</TableHead><TableHead>Total</TableHead><TableHead>Authorized persons</TableHead>
+                <TableHead>Meal types</TableHead><TableHead>Date range</TableHead><TableHead>Authorized persons</TableHead>
                 <TableHead>File</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -366,11 +354,12 @@ export default function CreditAccountDetailPage() {
                 const selectedMeals = agreementMealTypes(agreement);
                 return (
                   <TableRow key={agreement.id}>
-                    <TableCell className="font-medium">{selectedMeals.length ? selectedMeals.map((m) => m.name).join(", ") : agreement.meal_type}</TableCell>
-                    <TableCell>{agreement.number_of_person ?? 1}</TableCell>
-                    <TableCell>{money(agreement.price_per_person)}</TableCell>
+                    <TableCell className="max-w-[360px]">
+                      <div className="flex flex-wrap gap-1">
+                        {selectedMeals.length ? selectedMeals.map((m) => <Badge key={m.id} variant="secondary" className="max-w-full whitespace-normal text-left font-normal">{m.name}</Badge>) : <Badge variant="secondary" className="whitespace-normal font-normal">{agreement.meal_type || "—"}</Badge>}
+                      </div>
+                    </TableCell>
                     <TableCell>{fmtDate(agreement.start_date)} → {fmtDate(agreement.end_date)}</TableCell>
-                    <TableCell>{money(agreement.total_price)}</TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         {users.slice(0, 2).map((user) => <div key={user.id} className="text-sm">{user.full_name} · {user.phone}</div>)}
@@ -380,7 +369,7 @@ export default function CreditAccountDetailPage() {
                     <TableCell>{agreement.agreement_letter_url ? <Button asChild size="sm" variant="outline"><a href={agreement.agreement_letter_url} target="_blank" rel="noreferrer"><Download className="mr-2 h-4 w-4" />Open</a></Button> : "—"}</TableCell>
                     <TableCell><Badge variant={canOrder ? "outline" : "destructive"}>{canOrder ? "Active for order" : String(agreement.status ?? "expired")}</Badge></TableCell>
                     <TableCell className="text-right">
-                      <DropdownMenu>
+                      <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => openEditAgreement(agreement)}><Pencil className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
@@ -391,7 +380,7 @@ export default function CreditAccountDetailPage() {
                   </TableRow>
                 );
               })}
-              {!agreements.length && <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No agreements added yet.</TableCell></TableRow>}
+              {!agreements.length && <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No agreements added yet.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>
@@ -444,9 +433,6 @@ export default function CreditAccountDetailPage() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2"><Label>Person(s)</Label><Input type="number" min={1} value={agreementForm.number_of_person} onChange={(e) => setAgreementForm({ ...agreementForm, number_of_person: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Price / person</Label><Input type="number" min={0} step="0.01" value={agreementForm.price_per_person} onChange={(e) => setAgreementForm({ ...agreementForm, price_per_person: e.target.value })} /></div>
-              <div className="space-y-2"><Label>Total</Label><Input type="number" min={0} step="0.01" value={agreementForm.total_price} onChange={(e) => setAgreementForm({ ...agreementForm, total_price: e.target.value })} placeholder="Auto if empty" /></div>
               <div className="space-y-2"><Label>Start date</Label><Input type="date" value={agreementForm.start_date} onChange={(e) => setAgreementForm({ ...agreementForm, start_date: e.target.value })} /></div>
               <div className="space-y-2"><Label>End date</Label><Input type="date" value={agreementForm.end_date} onChange={(e) => setAgreementForm({ ...agreementForm, end_date: e.target.value })} /></div>
               <div className="space-y-2">

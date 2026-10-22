@@ -118,10 +118,14 @@ export const orderService = {
   async receiveOrderPayment(orderId: string|number, payload: { customer_name?: string | null; customer_tin?: string | null; payment_method?: PaymentMethod; paid_amount?: number; payment_reference?: string; balance_user_id?: number }) { const res = await api.post(`/cashier/orders/${orderId}/receive-payment`, payload); return unwrap<ApiEnvelope<Order>>(res); },
   async printOrderBill(orderId: string|number, payload: { customer_name?: string | null; customer_tin?: string | null; payment_method?: PaymentMethod; paid_amount?: number }) { return this.receiveOrderPayment(orderId, payload); },
 
-  async prepTickets(kind: 'kitchen'|'bar', params: OrderFilters = {}) { const res = await api.get(`/${kind}/tickets`, { params: clean(params) }); return page<PrepTicket>(res.data); },
-  async prepTicketAction(kind: 'kitchen'|'bar', id: string|number, action: 'accept'|'ready'|'served'|'reject'|'delay') { const res = await api.post(`/${kind}/tickets/${id}/${action}`); return unwrap<ApiEnvelope<PrepTicket>>(res); },
+  async prepTickets(kind: 'kitchen'|'bar', params: OrderFilters = {}) { const res = await api.get(`/${kind}/tickets`, { params: clean(params) }); return { ...page<PrepTicket>(res.data), data: [...page<PrepTicket>(res.data).data, ...(res.data?.fixed_meal_tickets ?? [])] }; },
+  async prepTicketAction(kind: 'kitchen'|'bar', id: string|number, action: 'accept'|'ready'|'served'|'reject'|'delay') { const fixed = String(id).startsWith('fixed-'); const path = fixed ? `/${kind}/fixed-meal-tickets/${String(id).slice(6)}/${action}` : `/${kind}/tickets/${id}/${action}`; const res = await api.post(path); return unwrap<ApiEnvelope<PrepTicket>>(res); },
 
 
+  async creditMealCategories() { const res = await api.get('/credit/meal-categories'); return rows<{ id: number; slug: string; name: string; description?: string | null; is_active: boolean; sort_order: number; meal_types_count: number }>(res.data); },
+  async createCreditMealCategory(payload: Record<string, unknown>) { const res = await api.post('/credit/meal-categories', payload); return unwrap<ApiEnvelope<any>>(res); },
+  async updateCreditMealCategory(id: number, payload: Record<string, unknown>) { const res = await api.put(`/credit/meal-categories/${id}`, payload); return unwrap<ApiEnvelope<any>>(res); },
+  async deleteCreditMealCategory(id: number) { const res = await api.delete(`/credit/meal-categories/${id}`); return unwrap<ApiEnvelope<null>>(res); },
   async creditMealTypes(params: Record<string, unknown> = {}) { const res = await api.get('/credit/meal-types', { params: clean(params) }); return rows<CreditMealType>(res.data); },
   async createCreditMealType(payload: CreditMealTypePayload) { const res = await api.post('/credit/meal-types', payload); return unwrap<ApiEnvelope<CreditMealType>>(res); },
   async updateCreditMealType(id: string|number, payload: CreditMealTypePayload) { const res = await api.put(`/credit/meal-types/${id}`, payload); return unwrap<ApiEnvelope<CreditMealType>>(res); },
@@ -142,13 +146,32 @@ export const orderService = {
   async disableCreditAgreement(accountId: string|number, agreementId: string|number) { const res = await api.patch(`/credit/accounts/${accountId}/agreements/${agreementId}/disable`); return unwrap<ApiEnvelope<CreditAgreement>>(res); },
   async toggleCreditAccount(id: string|number) { const res = await api.patch(`/credit/accounts/${id}/toggle`); return unwrap<ApiEnvelope<CreditAccount>>(res); },
   async scanCreditCard(cardNumber: string) { const res = await api.get('/credit/cards/scan', { params: { card_number: cardNumber } }); return unwrap<ApiEnvelope<any>>(res); },
+  async managerPosCreditOrders(params: OrderFilters = {}) { const res = await api.get('/manager/credit-payment-requests', { params: clean(params) }); return page<CreditOrder>(res.data); },
   async financePosCreditOrders(params: OrderFilters = {}) { const res = await api.get('/credit/finance-pos-orders', { params: clean(params) }); return page<CreditOrder>(res.data); },
   async creditOrders(params: OrderFilters = {}) { const res = await api.get('/credit/orders', { params: clean(params) }); return page<CreditOrder>(res.data); },
   async creditAgreementStatement(agreementId: string|number) { const res = await api.get(`/credit/agreements/${agreementId}/statement`); const body = unwrap<ApiEnvelope<any>>(res); return body.data; },
   async settleCreditAgreementOrders(agreementId: string|number, payload: { order_ids: Id[]; payment_method: PaymentMethod; reference_number?: string | null; notes?: string | null }) { const res = await api.post(`/credit/agreements/${agreementId}/settle-orders`, payload); return unwrap<ApiEnvelope<CreditOrder[]>>(res); },
   async approveCreditOrder(id: string|number) { const res = await api.post(`/credit/orders/${id}/approve`); return unwrap<ApiEnvelope<CreditOrder>>(res); },
   async rejectCreditOrder(id: string|number, note?: string) { const res = await api.post(`/credit/orders/${id}/reject`, { note }); return unwrap<ApiEnvelope<CreditOrder>>(res); },
-  async settleCreditOrder(id: string|number, payload: CreditSettlementPayload) { const res = await api.post(`/credit/orders/${id}/settlements`, payload); return unwrap<ApiEnvelope<CreditOrder>>(res); },
+  async verifyBulkCreditPayments(payload: { order_ids: (string | number)[]; amount: number; reference_number: string; bank_slip: File }) {
+    const form = new FormData();
+    payload.order_ids.forEach((id, index) => form.append(`order_ids[${index}]`, String(id)));
+    form.append('amount', String(payload.amount));
+    form.append('reference_number', payload.reference_number);
+    form.append('bank_slip', payload.bank_slip);
+    const res = await api.post('/credit/orders/verify-bulk-payments', form);
+    return unwrap<ApiEnvelope<any>>(res);
+  },
+  async settleCreditOrder(id: string|number, payload: CreditSettlementPayload) {
+    const form = new FormData();
+    form.append('amount', String(payload.amount));
+    form.append('payment_method', 'transfer');
+    form.append('reference_number', payload.reference_number ?? '');
+    form.append('bank_slip', payload.bank_slip);
+    if (payload.notes) form.append('notes', payload.notes);
+    const res = await api.post(`/credit/orders/${id}/settlements`, form);
+    return unwrap<ApiEnvelope<CreditOrder>>(res);
+  },
   async approveCreditSettlement(settlementId: string|number, note?: string) { const res = await api.post(`/credit/settlements/${settlementId}/approve`, { note }); return unwrap<ApiEnvelope<CreditOrder>>(res); },
   async approveCreditAgreementSettlements(agreementId: string|number, payload: { order_ids: Id[]; note?: string | null }) { const res = await api.post(`/credit/agreements/${agreementId}/approve-settlements`, payload); return unwrap<ApiEnvelope<CreditOrder[]>>(res); },
 

@@ -284,14 +284,20 @@ export type CreditAccountUserPayload = {
 export type CreditMealType = {
   id: Id;
   name: string;
+  price_per_person?: string | number | null;
   is_active?: boolean | number;
   agreements_count?: number;
+  category?: string | null;
+  menu_items?: { id: Id; name: string; price?: string | number }[];
   created_at?: string;
 };
 
 export type CreditMealTypePayload = {
   name: string;
+  price_per_person?: number;
   is_active?: boolean;
+  category?: string | null;
+  menu_item_ids?: (number | string)[];
 };
 
 export type CreditAgreement = {
@@ -329,7 +335,7 @@ export type CreditAgreementPayload = {
   agreement_type?: 'order_based' | 'beef_based' | string;
   number_of_person: number;
   single_person_name?: string | null;
-  price_per_person: number;
+  price_per_person?: number;
   start_date: string;
   end_date: string;
   total_price?: number | null;
@@ -419,6 +425,7 @@ export type ConvertCreditPayload = {
 
 export type CreditSettlementPayload = {
   amount: number;
+  bank_slip: File;
   payment_method: PaymentMethod;
   reference_number?: string | null;
   notes?: string | null;

@@ -131,6 +131,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
       { label: "Stock Balance", href: "/dashboard/cafeteria-manager/reports/stock-balance" },
       { label: "Procurement Summary", href: "/dashboard/cafeteria-manager/reports/procurement-summary" },
       { label: "Credit / AR Summary", href: "/dashboard/cafeteria-manager/reports/credit-ar-summary" },
+      { label: "Credit Payment Requests", href: "/dashboard/cafeteria-manager/reports/credit-payment-requests" },
       { label: "P&L Summary", href: "/dashboard/cafeteria-manager/reports/pnl-summary" },
       { label: "Cash Position", href: "/dashboard/cafeteria-manager/reports/cash-position" },
       { label: "Exception Reports", href: "/dashboard/cafeteria-manager/reports/exception-reports" },

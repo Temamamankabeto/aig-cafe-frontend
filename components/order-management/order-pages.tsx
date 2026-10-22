@@ -2836,7 +2836,7 @@ export function CreditAccountsPage() {
 }
 
 export function CreditOrdersPage() {
-  const [settle, setSettle] = useState<CreditOrder | null>(null);
+  const [bulkDialog, setBulkDialog] = useState(false);
   const [expandedCreditOrders, setExpandedCreditOrders] = useState<string[]>([]);
   const [amount, setAmount] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Array<string | number>>([]);
@@ -2844,6 +2844,9 @@ export function CreditOrdersPage() {
     per_page: 100,
     credit_account_id: "all",
     credit_agreement_id: "all",
+    authorized_person_id: "all",
+    from_date: "",
+    to_date: "",
     status: "all",
     search: "",
   });
@@ -2851,9 +2854,11 @@ export function CreditOrdersPage() {
   const accountsQuery = useCreditAccountsQuery({ per_page: 200, status: "active" });
   const selectedAccountId = filters.credit_account_id !== "all" ? filters.credit_account_id : undefined;
   const agreementsQuery = useCreditAgreementsQuery(selectedAccountId);
-  const query = useCreditOrdersQuery(filters);
+  const query = useCreditOrdersQuery({ ...filters, authorized_person_id: filters.authorized_person_id === "all" ? undefined : filters.authorized_person_id, from_date: filters.from_date || undefined, to_date: filters.to_date || undefined } as any);
   const approve = useApproveCreditOrderMutation();
-  const settlement = useSettleCreditOrderMutation(() => setSettle(null));
+  const [bankReference, setBankReference] = useState("");
+  const [bankSlip, setBankSlip] = useState<File | null>(null);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const bulkSettlement = useSettleCreditAgreementOrdersMutation(() => setSelectedIds([]));
   const approveSettlement = useApproveCreditSettlementMutation();
   const bulkApproveSettlements = useApproveCreditAgreementSettlementsMutation(() => setSelectedIds([]));
@@ -2882,12 +2887,12 @@ export function CreditOrdersPage() {
   );
   const selectableRows = rows.filter((row) => {
     if (role === "manager") {
-      return (row.settlements ?? []).some((item) => item.status === "pending_approval");
+      return (row.settlements ?? []).some((item) => item.status === "pending_approval" && Boolean((item as any).verified_at) && Boolean((item as any).bank_slip_path));
     }
 
     const status = String(row.status ?? "").toLowerCase();
     const pendingAmount = (row.settlements ?? [])
-      .filter((item) => item.status === "pending_approval")
+      .filter((item) => item.status === "pending_approval" && Boolean((item as any).verified_at) && Boolean((item as any).bank_slip_path))
       .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
     return ["credit_approved", "partially_settled", "overdue"].includes(status)
       && Number(row.remaining_amount ?? 0) - pendingAmount > 0;
@@ -2923,12 +2928,12 @@ export function CreditOrdersPage() {
       const orders = statement?.orders ?? [];
       const ids = orders.filter((row: CreditOrder) => {
         if (role === "manager") {
-          return (row.settlements ?? []).some((item) => item.status === "pending_approval");
+          return (row.settlements ?? []).some((item) => item.status === "pending_approval" && Boolean((item as any).verified_at) && Boolean((item as any).bank_slip_path));
         }
 
         const status = String(row.status ?? "").toLowerCase();
         const pendingAmount = (row.settlements ?? [])
-          .filter((item) => item.status === "pending_approval")
+          .filter((item) => item.status === "pending_approval" && Boolean((item as any).verified_at) && Boolean((item as any).bank_slip_path))
           .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
         return ["credit_approved", "partially_settled", "overdue"].includes(status)
           && Number(row.remaining_amount ?? 0) - pendingAmount > 0;
@@ -3049,30 +3054,47 @@ export function CreditOrdersPage() {
     );
   }
 
-  function approveSelectedAgreementPayments() {
-    if (filters.credit_agreement_id === "all") {
-      toast.error("Select a credit agreement first.");
-      return;
+  const [managerApproving, setManagerApproving] = useState(false);
+  async function approveSelectedVerifiedPayments() {
+    const selected = rows.filter((row) => selectedIds.some((id) => String(id) === String(row.id)));
+    const settlements = selected.flatMap((row) => (row.settlements ?? []).filter((item) => item.status === "pending_approval" && Boolean((item as any).verified_at) && Boolean((item as any).bank_slip_path)));
+    if (!settlements.length) { toast.error("Select Finance-verified payments first."); return; }
+    if (!window.confirm(`Approve ${settlements.length} Finance-verified payment(s)? Balances will update after approval.`)) return;
+    setManagerApproving(true);
+    let approved = 0;
+    try {
+      for (const settlement of settlements) {
+        await approveSettlement.mutateAsync({ settlementId: settlement.id });
+        approved++;
+      }
+      toast.success(`${approved} verified payment(s) approved.`);
+      setSelectedIds([]);
+    } catch (error: any) {
+      toast.error(`${approved} approved; remaining payments not processed. ${error?.response?.data?.message ?? error?.message ?? "Approval failed"}`);
+    } finally {
+      setManagerApproving(false);
+      await query.refetch();
     }
-    if (!selectedIds.length) {
-      toast.error("Select at least one order payment to approve.");
-      return;
-    }
-
-    bulkApproveSettlements.mutate(
-      {
-        agreementId: filters.credit_agreement_id,
-        payload: {
-          order_ids: selectedIds,
-          note: "Selected agreement payments approved by Manager.",
-        },
-      },
-      {
-        onSuccess: (result: any) => toast.success(result?.message ?? "Selected agreement payments approved successfully."),
-        onError: (error: any) => toast.error(error?.response?.data?.message ?? error?.message ?? "Failed to approve selected payments."),
-      },
-    );
   }
+
+  const managerGroups = (() => {
+    const accounts = new Map<string, Map<string, Map<string, CreditOrder[]>>>();
+    for (const row of rows) {
+      const account = (row.credit_account ?? row.account)?.name ?? "Unknown credit account";
+      const order = row.order as any;
+      const rawType = String(order?.meal_type ?? (row as any).meal_type ?? "").trim();
+      const mode = String(order?.credit_order_mode ?? (row as any).credit_order_mode ?? "").toLowerCase();
+      const category = /buffet/i.test(rawType) ? "Buffet" : /refreshment/i.test(rawType) ? "Refreshment" : mode === "order_based" || /order.based|à la carte/i.test(rawType) ? "Order-Based (À La Carte)" : "Order-Based (À La Carte)";
+      const type = category === "Order-Based (À La Carte)" ? (row.used_by_name ?? (row as any).authorized_user?.full_name ?? "Unassigned authorized person") : rawType || "Unspecified meal type";
+      if (!accounts.has(account)) accounts.set(account, new Map());
+      const categories = accounts.get(account)!;
+      if (!categories.has(category)) categories.set(category, new Map());
+      const types = categories.get(category)!;
+      if (!types.has(type)) types.set(type, []);
+      types.get(type)!.push(row);
+    }
+    return accounts;
+  })();
 
   return (
     <div className="space-y-6">
@@ -3081,7 +3103,7 @@ export function CreditOrdersPage() {
           <h1 className="text-2xl font-bold tracking-tight">Credit Orders</h1>
           <p className="text-muted-foreground">
             {role === "manager"
-              ? "Review Finance payment records by credit account and agreement, then approve selected payments."
+              ? "Review Finance-verified bank payments, then approve selected payments."
               : "Finance records credit payments. A Manager reviews and approves them before balances are updated."}
           </p>
         </div>
@@ -3103,7 +3125,7 @@ export function CreditOrdersPage() {
       <Card className="rounded-2xl">
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>Choose a credit account, then an agreement, to review and settle its orders.</CardDescription>
+          <CardDescription>Filter credit orders by account, authorized person and custom dates.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-4">
           <div className="grid gap-2">
@@ -3111,7 +3133,7 @@ export function CreditOrdersPage() {
             <Select
               value={filters.credit_account_id}
               onValueChange={(credit_account_id) => {
-                updateFilter({ credit_account_id, credit_agreement_id: "all" });
+                updateFilter({ credit_account_id, authorized_person_id: "all" });
                 setSelectedIds([]);
               }}
             >
@@ -3128,28 +3150,17 @@ export function CreditOrdersPage() {
           </div>
 
           <div className="grid gap-2">
-            <Label>Agreement</Label>
-            <Select
-              value={filters.credit_agreement_id}
-              disabled={!selectedAccountId || agreementsQuery.isLoading}
-              onValueChange={(credit_agreement_id) => {
-                updateFilter({ credit_agreement_id });
-                setSelectedIds([]);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={!selectedAccountId ? "Select account first" : agreementsQuery.isLoading ? "Loading agreements..." : "All agreements"} />
-              </SelectTrigger>
+            <Label>Authorized person</Label>
+            <Select value={filters.authorized_person_id} onValueChange={(authorized_person_id) => { updateFilter({ authorized_person_id }); setSelectedIds([]); }}>
+              <SelectTrigger><SelectValue placeholder="All persons" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All agreements</SelectItem>
-                {agreements.map((agreement) => {
-                  const meal = agreement.meal_types?.map((item: any) => item.name).filter(Boolean).join(", ") || agreement.meal_type || "Agreement";
-                  return <SelectItem key={agreement.id} value={String(agreement.id)}>#{agreement.id} - {meal} ({agreement.start_date} - {agreement.end_date})</SelectItem>;
-                })}
+                <SelectItem value="all">All persons</SelectItem>
+                {Array.from(new Map(rows.filter((r) => filters.credit_account_id === "all" || String((r.credit_account ?? r.account)?.id) === filters.credit_account_id).filter((r) => r.credit_account_user_id).map((r) => [String(r.credit_account_user_id), { id: String(r.credit_account_user_id), name: r.used_by_name || r.authorized_user?.full_name || `Person #${r.credit_account_user_id}` }])).values()).map((person) => <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-
+          <div className="grid gap-2"><Label>From date</Label><Input type="date" value={filters.from_date} onChange={(e) => { updateFilter({ from_date: e.target.value }); setSelectedIds([]); }} /></div>
+          <div className="grid gap-2"><Label>To date</Label><Input type="date" min={filters.from_date || undefined} value={filters.to_date} onChange={(e) => { updateFilter({ to_date: e.target.value }); setSelectedIds([]); }} /></div>
           <div className="grid gap-2">
             <Label>Status</Label>
             <Select value={filters.status} onValueChange={(status) => updateFilter({ status })}>
@@ -3172,54 +3183,46 @@ export function CreditOrdersPage() {
         </CardContent>
       </Card>
 
-      {role === "finance" && filters.credit_agreement_id !== "all" && (
-        <Card className="rounded-2xl">
-          <CardContent className="flex flex-col gap-3 pt-6 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="font-semibold">Agreement financial actions</div>
-              <div className="text-sm text-muted-foreground">
-                {selectedIds.length} payable order(s) selected. Bulk payment recording preserves the existing Manager approval workflow.
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={selectAllAgreementOrders}>Check all orders</Button>
-              <Button variant="outline" onClick={printFinancialStatement}>
-                <Printer className="mr-2 h-4 w-4" />
-                Print financial statement
-              </Button>
-              <Button disabled={!selectedIds.length || bulkSettlement.isPending} onClick={markSelectedAsPaid}>
-                {bulkSettlement.isPending ? "Recording..." : "Mark selected as paid"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {role === "finance" && (
+        <Card className="rounded-2xl"><CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+          <div><div className="font-semibold">Bulk bank payment verification</div><div className="text-sm text-muted-foreground">{selectedIds.length} eligible order(s) selected from the displayed filtered list (up to 100). One bank slip and one reference.</div></div>
+          <div className="flex gap-2"><Button variant="outline" onClick={() => { setSelectedIds(selectableRows.map((r) => r.id)); }}>Select all displayed</Button><Button disabled={!selectedIds.length} onClick={() => { setAmount(rows.filter((r) => selectedIds.some((id) => String(id) === String(r.id))).reduce((sum,r) => { const pending = (r.settlements ?? []).filter((x) => x.status === "pending_approval").reduce((a,x) => a + Number(x.amount ?? 0),0); return sum + Math.max(0,Number(r.remaining_amount ?? 0)-pending); },0)); setBulkDialog(true); }}>Verify selected payments</Button></div>
+        </CardContent></Card>
       )}
 
-      {role === "manager" && filters.credit_agreement_id !== "all" && (
-        <Card className="rounded-2xl">
-          <CardContent className="flex flex-col gap-3 pt-6 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="font-semibold">Agreement payment approvals</div>
-              <div className="text-sm text-muted-foreground">
-                {selectedIds.length} order payment(s) selected from this agreement. Approving updates balances using the existing approval audit trail.
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={selectAllAgreementOrders}>Select all pending approvals</Button>
-              <Button disabled={!selectedIds.length || bulkApproveSettlements.isPending} onClick={approveSelectedAgreementPayments}>
-                {bulkApproveSettlements.isPending ? "Approving..." : "Approve selected"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {role === "manager" && (
+        <Card className="rounded-2xl"><CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+          <div><div className="font-semibold">Finance-verified payment approvals</div><div className="text-sm text-muted-foreground">{selectedIds.length} eligible order(s) selected. Only Finance-verified pending payments can be approved.</div></div>
+          <div className="flex gap-2"><Button variant="outline" onClick={() => toggleAllVisible(!allVisibleSelected)}>{allVisibleSelected ? "Clear selection" : "Select all verified"}</Button><Button disabled={!selectedIds.length || managerApproving} onClick={approveSelectedVerifiedPayments}>{managerApproving ? "Approving..." : "Approve selected verified payments"}</Button></div>
+        </CardContent></Card>
       )}
 
       <Card className="rounded-2xl">
         <CardContent className="pt-6">
+          {role === "manager" ? (
+            <div className="space-y-3">
+              {query.isLoading ? <p>Loading credit orders...</p> : Array.from(managerGroups.entries()).map(([account, categories]) => (
+                <details key={account} open className="rounded-lg border p-3"><summary className="cursor-pointer font-semibold">{account}</summary>
+                  <div className="mt-3 space-y-2 pl-3">{Array.from(categories.entries()).map(([category, types]) => (
+                    <details key={category} open className="rounded-md border p-2"><summary className="cursor-pointer font-medium">{category}</summary>
+                      <div className="mt-2 space-y-2 pl-3">{Array.from(types.entries()).map(([type, orders]) => (
+                        <details key={type} open className="rounded-md border p-2"><summary className="cursor-pointer">{type}</summary>
+                          <div className="overflow-x-auto"><table className="mt-2 w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">Select</th><th>Order / Items</th><th>Status</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Verified payment</th></tr></thead><tbody>
+                          {orders.map((c) => { const pending = (c.settlements ?? []).filter((item) => item.status === "pending_approval" && Boolean((item as any).verified_at) && Boolean((item as any).bank_slip_path)); const eligible = pending.length > 0; return <tr key={c.id} className="border-b align-top"><td className="p-2"><Checkbox checked={selectedIds.some((id) => String(id) === String(c.id))} disabled={!eligible || managerApproving} onCheckedChange={(v) => toggleRow(c.id, Boolean(v))} aria-label={`Select verified payment for ${c.credit_reference ?? c.id}`} /></td><td className="py-2"><div className="font-medium">{c.order?.order_number ?? c.credit_reference ?? c.id}</div>{(c.order?.items ?? []).map((item: any) => <div key={item.id} className="text-xs text-muted-foreground">{item.menu_item?.name ?? item.name ?? "Item"} × {item.quantity}</div>)}</td><td><StatusBadge status={c.status} /></td><td>{money(c.total_amount)}</td><td>{money(c.paid_amount)}</td><td>{money(c.remaining_amount)}</td><td>{eligible ? money(pending.reduce((sum, item) => sum + Number(item.amount ?? 0), 0)) : "Not verified"}</td></tr>; })}
+                          </tbody></table></div>
+                        </details>
+                      ))}</div>
+                    </details>
+                  ))}</div>
+                </details>
+              ))}
+              {!query.isLoading && !rows.length && <p className="py-8 text-center text-muted-foreground">No credit orders found for the selected filters.</p>}
+            </div>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                {["finance", "manager"].includes(role) && <TableHead className="w-12"><Checkbox checked={allVisibleSelected} disabled={filters.credit_agreement_id === "all"} onCheckedChange={(checked) => toggleAllVisible(Boolean(checked))} aria-label="Select all eligible visible orders" /></TableHead>}
+                {["finance", "manager"].includes(role) && <TableHead className="w-12"><Checkbox checked={allVisibleSelected}  onCheckedChange={(checked) => toggleAllVisible(Boolean(checked))} aria-label="Select all eligible visible orders" /></TableHead>}
                 <TableHead>Reference</TableHead>
                 <TableHead>Account</TableHead>
                 <TableHead>Agreement</TableHead>
@@ -3239,7 +3242,7 @@ export function CreditOrdersPage() {
                   const account = c.credit_account ?? c.account;
                   const status = String(c.status ?? "").toLowerCase();
                   const canApprove = ["pending", "credit_pending"].includes(status);
-                  const pendingSettlements = (c.settlements ?? []).filter((item) => item.status === "pending_approval");
+                  const pendingSettlements = (c.settlements ?? []).filter((item) => item.status === "pending_approval" && Boolean((item as any).verified_at) && Boolean((item as any).bank_slip_path));
                   const pendingAmount = pendingSettlements.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
                   const canSettle = ["credit_approved", "partially_settled", "overdue"].includes(status) && Number(c.remaining_amount ?? 0) - pendingAmount > 0;
                   const checked = selectedIds.some((id) => String(id) === String(c.id));
@@ -3247,7 +3250,7 @@ export function CreditOrdersPage() {
                   return (
                     <Fragment key={c.id}>
                     <TableRow>
-                      {["finance", "manager"].includes(role) && <TableCell><Checkbox checked={checked} disabled={(role === "finance" ? !canSettle : pendingSettlements.length === 0) || filters.credit_agreement_id === "all"} onCheckedChange={(value) => toggleRow(c.id, Boolean(value))} aria-label={`Select credit order ${c.credit_reference ?? c.id}`} /></TableCell>}
+                      {["finance", "manager"].includes(role) && <TableCell><Checkbox checked={checked} disabled={(role === "finance" ? !canSettle : pendingSettlements.length === 0)} onCheckedChange={(value) => toggleRow(c.id, Boolean(value))} aria-label={`Select credit order ${c.credit_reference ?? c.id}`} /></TableCell>}
                       <TableCell>
                         <button type="button" className="flex items-center gap-2 text-left font-medium underline-offset-2 hover:underline" aria-expanded={expandedCreditOrders.includes(String(c.id))} onClick={() => setExpandedCreditOrders((current) => current.includes(String(c.id)) ? current.filter((id) => id !== String(c.id)) : [...current, String(c.id)])}>
                           <span aria-hidden="true">{expandedCreditOrders.includes(String(c.id)) ? "▾" : "▸"}</span>
@@ -3266,10 +3269,7 @@ export function CreditOrdersPage() {
                         {canApprove && ["manager", "admin"].includes(role) && (
                           <Button size="sm" variant="outline" disabled={approve.isPending} onClick={() => approve.mutate(c.id)}>Approve</Button>
                         )}
-                        {canSettle && ["finance", "admin"].includes(role) && (
-                          <Button className="ml-2" size="sm" onClick={() => { setSettle(c); setAmount(Number(c.remaining_amount ?? 0)); }}>Record payment</Button>
-                        )}
-                        {(role === "admin" || (role === "manager" && filters.credit_agreement_id === "all")) && pendingSettlements.map((item) => (
+                        {role === "admin" && pendingSettlements.map((item) => (
                           <Button key={item.id} className="ml-2" size="sm" disabled={approveSettlement.isPending} onClick={() => approveSettlement.mutate({ settlementId: item.id })}>Approve {money(item.amount)}</Button>
                         ))}
                       </TableCell>
@@ -3300,20 +3300,28 @@ export function CreditOrdersPage() {
               )}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
 
-      <Dialog open={!!settle} onOpenChange={(o) => !o && setSettle(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Record credit payment</DialogTitle></DialogHeader>
+      <Dialog open={bulkDialog} onOpenChange={setBulkDialog}>
+        <DialogContent><DialogHeader><DialogTitle>Verify filtered credit payments</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label>Amount</Label>
-              <Input type="number" min={0} max={Number(settle?.remaining_amount ?? 0)} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
-            </div>
-            <Button disabled={!settle || amount <= 0 || settlement.isPending} onClick={() => settle && settlement.mutate({ id: settle.id, payload: { amount, payment_method: "cash" } })}>
-              Send for Manager approval
-            </Button>
+            <p className="text-sm">{selectedIds.length} selected order(s). A single bank deposit covers the full outstanding amount for these orders.</p>
+            <div className="grid gap-2"><Label>Total bank deposit (ETB)</Label><Input type="number" value={amount} readOnly /></div>
+            <div className="grid gap-2"><Label>Bank transaction reference (required)</Label><Input value={bankReference} maxLength={255} onChange={(e) => setBankReference(e.target.value)} /></div>
+            <div className="grid gap-2"><Label>Bank deposit slip (PDF or image, max 5 MB)</Label><Input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(e) => setBankSlip(e.target.files?.[0] ?? null)} /></div>
+            <p className="text-xs text-muted-foreground">Verify the bank credit before submitting. No paid balances change until Manager approval.</p>
+            <Button disabled={!selectedIds.length || !bankReference.trim() || !bankSlip || bankSlip.size > 5*1024*1024 || bulkSubmitting} onClick={async () => {
+              if (!bankSlip || bulkSubmitting) return;
+              setBulkSubmitting(true);
+              try {
+                const result = await orderService.verifyBulkCreditPayments({ order_ids: selectedIds, amount: Number(amount.toFixed(2)), reference_number: bankReference.trim(), bank_slip: bankSlip });
+                toast.success(result?.message ?? "Bank payment verified and submitted for approval.");
+                setBulkDialog(false); setSelectedIds([]); setBankReference(""); setBankSlip(null); await query.refetch();
+              } catch (error: any) { toast.error(error?.response?.data?.message ?? error?.message ?? "Bulk payment verification failed."); }
+              finally { setBulkSubmitting(false); }
+            }}>{bulkSubmitting ? "Submitting..." : "Verify bank payment & submit for approval"}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -3326,6 +3334,9 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
   const query = usePrepTicketsQuery(kind, filters);
   const action = usePrepTicketActionMutation();
   const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<"regular" | "credit">("regular");
+  const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
+  const [expandedMealTypes, setExpandedMealTypes] = useState<string[]>([]);
   const rows = query.data?.data ?? [];
   const title = kind === "kitchen" ? "Kitchen Tickets" : "Bar Tickets";
 
@@ -3337,7 +3348,12 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
   function canReady(status?: string) { return ["preparing"].includes(String(status ?? "").toLowerCase()); }
   function canServed(status?: string) { return ["ready"].includes(String(status ?? "").toLowerCase()); }
 
-  const grouped = Object.values(rows.reduce((acc: Record<string, any>, ticket: any) => {
+  const visibleRows = rows.filter((ticket: any) => {
+    const order = ticket.order_item?.order ?? ticket.order;
+    const isCredit = ticket.payment_type === "credit" || order?.payment_type === "credit";
+    return activeTab === "credit" ? isCredit : !isCredit;
+  });
+  const grouped = Object.values(visibleRows.reduce((acc: Record<string, any>, ticket: any) => {
     const key = String(ticket.order_id ?? ticket.order?.id ?? `ticket-${ticket.id}`);
     if (!acc[key]) acc[key] = { key, number: ticket.order?.order_number ?? ticket.order_number ?? String(ticket.order_id ?? ticket.id), tickets: [] };
     acc[key].tickets.push(ticket);
@@ -3349,6 +3365,18 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
     return statuses.every((status) => status === statuses[0]) ? statuses[0] : "mixed";
   };
   const waiterName = (ticket: any) => ticket.waiter?.name ?? ticket.order?.waiter?.name ?? ticket.waiter_name ?? ticket.order?.waiter_name ?? "—";
+  const categoryNames: Record<string, string> = { refreshment: "Refreshment", buffet: "Buffet", order_based: "Order-Based (À La Carte)", other: "Other" };
+  const creditGroups = grouped.reduce((acc: Record<string, Record<string, typeof grouped>>, group) => {
+    const ticket = group.tickets[0];
+    const meal = ticket.credit_meal ?? {};
+    const category = String(meal.meal_category ?? "other").toLowerCase();
+    const mealName = String(meal.meal_type ?? "Other");
+    (acc[category] ??= {})[mealName] ??= [];
+    acc[category][mealName].push(group);
+    return acc;
+  }, {} as Record<string, Record<string, typeof grouped>>);
+  const toggleCategory = (key: string) => setExpandedCategories((current) => current.includes(key) ? current.filter((v) => v !== key) : [...current, key]);
+  const toggleMealType = (key: string) => setExpandedMealTypes((current) => current.includes(key) ? current.filter((v) => v !== key) : [...current, key]);
 
   return (
     <div className="space-y-6">
@@ -3369,16 +3397,55 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
         </div>
       </div>
 
+      <div className="inline-flex flex-wrap gap-2 rounded-xl border p-1" role="tablist" aria-label="Ticket type">
+        <Button type="button" role="tab" aria-selected={activeTab === "regular"} variant={activeTab === "regular" ? "default" : "ghost"} onClick={() => setActiveTab("regular")}>Regular Orders</Button>
+        <Button type="button" role="tab" aria-selected={activeTab === "credit"} variant={activeTab === "credit" ? "default" : "ghost"} onClick={() => setActiveTab("credit")}>Credit Orders</Button>
+      </div>
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          ["Total", rows.length],
-          ["Confirmed", rows.filter((r: any) => r.status === "confirmed" || r.status === "pending").length],
-          ["Preparing", rows.filter((r: any) => r.status === "preparing").length],
-          ["Ready", rows.filter((r: any) => r.status === "ready").length],
+          ["Total", visibleRows.length],
+          ["Confirmed", visibleRows.filter((r: any) => r.status === "confirmed" || r.status === "pending").length],
+          ["Preparing", visibleRows.filter((r: any) => r.status === "preparing").length],
+          ["Ready", visibleRows.filter((r: any) => r.status === "ready").length],
         ].map(([label, value]) => <Card key={String(label)} className="rounded-2xl"><CardHeader className="pb-2"><CardDescription>{label}</CardDescription><CardTitle>{value}</CardTitle></CardHeader></Card>)}
       </div>
 
-      <Card className="rounded-2xl">
+      {activeTab === "credit" && <div className="space-y-3">
+        {Object.keys(creditGroups).length === 0 && <div className="rounded-xl border p-6 text-center text-muted-foreground">No credit tickets found for this filter.</div>}
+        {Object.entries(creditGroups).sort(([a], [b]) => ["refreshment", "buffet", "order_based", "other"].indexOf(a) - ["refreshment", "buffet", "order_based", "other"].indexOf(b)).map(([category, meals]) => <div key={category} className="rounded-xl border bg-card">
+          <button type="button" aria-expanded={expandedCategories.includes(category)} onClick={() => toggleCategory(category)} className="flex w-full items-center justify-between gap-3 p-4 text-left font-semibold">
+            <span>{expandedCategories.includes(category) ? "▾" : "▸"} &nbsp; {categoryNames[category] ?? category.replace(/_/g, " ")}</span><span className="text-xs font-normal text-muted-foreground">{Object.values(meals).reduce((sum, groups) => sum + groups.length, 0)} orders</span>
+          </button>
+          {expandedCategories.includes(category) && <div className="space-y-2 border-t p-3">
+            {Object.entries(meals).map(([mealName, orders]) => {
+              const mealKey = `${category}:${mealName}`;
+              return <div key={mealKey} className="rounded-lg border">
+                <button type="button" aria-expanded={expandedMealTypes.includes(mealKey)} onClick={() => toggleMealType(mealKey)} className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm font-medium">
+                  <span>{expandedMealTypes.includes(mealKey) ? "▾" : "▸"} &nbsp; {mealName}</span><span className="text-xs text-muted-foreground">{orders.length} orders</span>
+                </button>
+                {expandedMealTypes.includes(mealKey) && <div className="space-y-2 border-t p-3">
+                  {orders.map((group) => <div key={group.key} className="rounded-lg border p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <button type="button" className="font-semibold hover:underline" onClick={() => toggleOrder(group.key)} aria-expanded={expandedOrders.includes(group.key)}>{expandedOrders.includes(group.key) ? "▾" : "▸"} {group.number}</button>
+                      <span>Waiter: {waiterName(group.tickets[0])}</span>
+                      <span>Persons: {group.tickets[0]?.credit_meal?.number_of_person ?? "—"}</span>
+                      <StatusBadge status={groupStatus(group.tickets)} />
+                    </div>
+                    {expandedOrders.includes(group.key) && <div className="mt-3 space-y-2 border-t pt-3">{group.tickets.map((ticket: any) => {
+                      const status = String(ticket.status ?? "confirmed").toLowerCase();
+                      return <div key={ticket.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/30 p-2">
+                        <span>{ticketName(ticket)} · Qty {ticket.order_item?.quantity ?? ticket.quantity ?? 1}</span><StatusBadge status={status} />
+                        <div className="flex gap-2">{canAccept(status) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "accept" })}>Accept</Button>}{canReady(status) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "ready" })}>Ready</Button>}{canServed(status) && <Button size="sm" variant="outline" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "served" })}>Served</Button>}</div>
+                      </div>;
+                    })}</div>}
+                  </div>)}
+                </div>}
+              </div>;
+            })}
+          </div>}
+        </div>)}
+      </div>}
+      {activeTab === "regular" && <Card className="rounded-2xl">
         <CardContent className="pt-6">
           <div className="overflow-x-auto rounded-xl border">
             <Table>
@@ -3424,7 +3491,7 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
             </Table>
           </div>
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 }
