@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import api from '@/lib/api';
 import { CalendarClock, MoreHorizontal, PackagePlus, Plus, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -229,167 +230,47 @@ export function PackagesPage() {
 }
 
 export function PackageOrdersPage() {
-  const [filters, setFilters] = useState({ search: '', status: 'all', page: 1, per_page: 10 });
-  const packageOrdersQuery = usePackageOrdersQuery(filters);
-  const action = usePackageOrderActionMutation();
-  const rows = packageOrdersQuery.data?.data ?? [];
-
+  type StaffOrder = { id: number; date: string; order_number: string; staff_id: number; staff_name: string; amount: number; items: { name: string; quantity: number; unit_price: number; total: number }[] };
+  type StaffRow = { id: number; name: string; orders: number; expense: number };
+  type Report = { orders: StaffOrder[]; staff: StaffRow[]; staff_options: { id: number; name: string }[]; summary: { total_expense: number; total_orders: number; total_staff: number } };
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [staffId, setStaffId] = useState('all');
+  const [report, setReport] = useState<Report | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState<number[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    api.get('/finance/staff-package-report', { params: { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(staffId !== 'all' ? { staff_id: staffId } : {}) } })
+      .then((response) => { if (!cancelled) setReport(response.data.data as Report); })
+      .catch(() => { if (!cancelled) setError('Unable to load staff package expenses. Check your Finance access and date filters.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [from, to, staffId]);
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Package Orders</h1>
-          <p className="text-muted-foreground">
-            Scheduled orders for events, meetings, catering and organization meals.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/dashboard/catering/package-orders/create">
-            <PackagePlus className="mr-2 h-4 w-4" />
-            New package order
-          </Link>
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Staff Package Expense Report</h1>
       </div>
-
-      <div className="grid gap-4 md:grid-cols-4">
-        {[
-          ['Total', rows.length],
-          ['Approved', rows.filter((row) => row.status === 'approved').length],
-          ['Preparing', rows.filter((row) => row.status === 'preparing').length],
-          ['Completed', rows.filter((row) => row.status === 'completed').length],
-        ].map(([label, value]) => (
-          <Card key={String(label)} className="rounded-2xl">
-            <CardHeader className="pb-2">
-              <CardDescription>{label}</CardDescription>
-              <CardTitle>{value}</CardTitle>
-            </CardHeader>
-          </Card>
-        ))}
-      </div>
-
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <CardTitle>Event orders</CardTitle>
-            <div className="flex flex-col gap-2 md:flex-row">
-              <Input
-                placeholder="Search event"
-                value={filters.search}
-                onChange={(event) => setFilters({ ...filters, search: event.target.value, page: 1 })}
-              />
-              <Select
-                value={filters.status}
-                onValueChange={(status) => setFilters({ ...filters, status, page: 1 })}
-              >
-                <SelectTrigger className="w-full md:w-44">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {['all', 'draft', 'quoted', 'approved', 'scheduled', 'preparing', 'ready', 'delivered', 'completed', 'cancelled'].map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status.replace(/_/g, ' ')}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Event</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Guests</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Payment</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {packageOrdersQuery.isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                      Loading package orders...
-                    </TableCell>
-                  </TableRow>
-                ) : rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                      No package orders found.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  rows.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell>
-                        <div className="font-medium">{order.event_name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {order.event_type ?? 'Event'} • {order.delivery_location ?? 'No location'}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {date(order.event_date)} {order.event_time ?? ''}
-                      </TableCell>
-                      <TableCell>{order.guest_count}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={order.status} />
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{order.payment_type ?? 'cash'}</Badge>
-                        {order.credit_status ? (
-                          <div className="mt-1">
-                            <StatusBadge status={order.credit_status} />
-                          </div>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>{money(order.total)}</TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/dashboard/catering/package-orders/${order.id}`}>View</Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => action.mutate({ id: order.id, action: 'approve' })}>
-                              Approve
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => action.mutate({ id: order.id, action: 'start-preparation' })}>
-                              Start preparation
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => action.mutate({ id: order.id, action: 'mark-ready' })}>
-                              Mark ready
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => action.mutate({ id: order.id, action: 'deliver' })}>
-                              Deliver
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => action.mutate({ id: order.id, action: 'complete' })}>
-                              Complete
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => action.mutate({ id: order.id, action: 'cancel' })}
-                            >
-                              Cancel
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+      <Card className="rounded-2xl"><CardContent className="grid gap-4 pt-6 md:grid-cols-3">
+        <div className="space-y-2"><Label htmlFor="staff-from">From date</Label><Input id="staff-from" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} /></div>
+        <div className="space-y-2"><Label htmlFor="staff-to">To date</Label><Input id="staff-to" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></div>
+        <div className="space-y-2"><Label>Staff</Label><Select value={staffId} onValueChange={setStaffId}><SelectTrigger><SelectValue placeholder="All staff" /></SelectTrigger><SelectContent><SelectItem value="all">All staff</SelectItem>{report?.staff_options.map((staff) => <SelectItem key={staff.id} value={String(staff.id)}>{staff.name}</SelectItem>)}</SelectContent></Select></div>
+      </CardContent></Card>
+      {error ? <p role="alert" className="text-destructive">{error}</p> : null}
+      <Card className="rounded-2xl"><CardHeader><CardTitle>Staff Package Orders</CardTitle></CardHeader><CardContent><div className="overflow-x-auto rounded-xl border"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Order Number</TableHead><TableHead>Staff</TableHead><TableHead className="text-right">Total (ETB)</TableHead></TableRow></TableHeader><TableBody>
+        {report?.orders.map((order) => <>
+          <TableRow key={`order-${order.id}`} className="cursor-pointer" onClick={() => setExpanded((current) => current.includes(order.id) ? current.filter((id) => id !== order.id) : [...current, order.id])}>
+            <TableCell>{order.date}</TableCell><TableCell>{expanded.includes(order.id) ? '▾' : '▸'} {order.order_number}</TableCell><TableCell>{order.staff_name}</TableCell><TableCell className="text-right font-medium">{money(order.amount)}</TableCell>
+          </TableRow>
+          {expanded.includes(order.id) ? <TableRow key={`details-${order.id}`}><TableCell colSpan={4}><div className="rounded-lg bg-muted/30 p-3"><Table><TableHeader><TableRow><TableHead>Menu Item</TableHead><TableHead>Quantity</TableHead><TableHead>Unit Price</TableHead><TableHead className="text-right">Total (ETB)</TableHead></TableRow></TableHeader><TableBody>{order.items.map((item, index) => <TableRow key={index}><TableCell>{item.name}</TableCell><TableCell>{item.quantity}</TableCell><TableCell>{money(item.unit_price)}</TableCell><TableCell className="text-right">{money(item.total)}</TableCell></TableRow>)}</TableBody></Table></div></TableCell></TableRow> : null}
+        </>)}
+        {!loading && !report?.orders.length ? <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No staff package orders found.</TableCell></TableRow> : null}
+        <TableRow className="border-t-2 font-semibold"><TableCell colSpan={3}>Total Staff Package Expense</TableCell><TableCell className="text-right">{loading ? "Loading..." : `${money(report?.summary.total_expense)} ETB`}</TableCell></TableRow>
+      </TableBody></Table></div></CardContent></Card>
     </div>
   );
 }

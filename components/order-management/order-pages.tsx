@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { authService } from "@/services/auth/auth.service";
 import { orderService } from "@/services/order-management/order.service";
 import { useEffect, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { MoreHorizontal, Plus, Printer, Search, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 import api, { unwrap } from "@/lib/api";
@@ -198,6 +198,25 @@ function StatusBadge({ status }: { status?: string | null }) {
   );
 }
 
+// Staff package orders are paid from an employee allocation, not at the POS.
+// Do not hide ordinary cashier orders paid with a balance account.
+function isStaffPackageOrder(order: Order): boolean {
+  const record = order as any;
+  const markers = [
+    record.order_source,
+    record.source,
+    record.source_type,
+    record.order_channel,
+    record.order_mode,
+    record.payment_type,
+    record.order_type,
+  ];
+  return markers.some((value) => {
+    const normalized = String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "staff_package" || normalized === "staff_package_order";
+  }) || record.is_staff_package === true || record.is_staff_package_order === true;
+}
+
 function lineItemsCount(order: Order) {
   return order.items?.length ?? order.order_items?.length ?? 0;
 }
@@ -272,8 +291,11 @@ export function OrdersPage({
   const meta = query.data?.meta;
   const report = (meta as any)?.report;
   const filteredRows = useMemo(
-    () => rows.filter((order: Order) => isInsideCustomDateRange((order as any).created_at ?? (order as any).createdAt, filters)),
-    [rows, filters.period, filters.date_from, filters.date_to],
+    () => rows.filter((order: Order) =>
+      (scope !== "cashier" || !isStaffPackageOrder(order)) &&
+      isInsideCustomDateRange((order as any).created_at ?? (order as any).createdAt, filters)
+    ),
+    [rows, scope, filters.period, filters.date_from, filters.date_to],
   );
 
   const confirm = useConfirmOrderMutation(scope);
@@ -289,9 +311,9 @@ export function OrdersPage({
 
   const totals = useMemo(
     () => ({
-      total: report?.total_orders ?? filteredRows.length,
+      total: scope === "cashier" ? filteredRows.length : report?.total_orders ?? filteredRows.length,
       totalCost:
-        report?.total_cost ??
+        (scope === "cashier" ? undefined : report?.total_cost) ??
         filteredRows.reduce(
           (sum, order) => sum + Number(order.total ?? order.total_amount ?? 0),
           0,
@@ -299,7 +321,7 @@ export function OrdersPage({
       confirmed: filteredRows.filter((o) => o.status === "confirmed").length,
       ready: filteredRows.filter((o) => o.status === "ready").length,
     }),
-    [filteredRows, report],
+    [filteredRows, report, scope],
   );
 
   const updateFilter = (patch: Partial<typeof filters>) => {
@@ -1016,13 +1038,14 @@ export function SoldItemsReportPage({ scope = "waiter" }: { scope?: Scope }) {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order: Order) => {
+      if (scope === "cashier" && isStaffPackageOrder(order)) return false;
       const paymentMethod = getOrderPaymentMethod(order);
       const creditMode = String((order as any).credit_order_mode ?? "").toLowerCase();
 
       return normalizeOrderItems(order).length > 0 ||
         (paymentMethod === "credit" && creditMode === "beef_based");
     });
-  }, [orders]);
+  }, [orders, scope]);
 
   const orderReports = useMemo(
     () => filteredOrders.map((order: Order) => buildOrderReport(order)),
@@ -2057,6 +2080,15 @@ export function OrderDetailPage({
     balance_user_id: "",
   });
 
+  const [balanceSearch, setBalanceSearch] = useState("");
+  const balanceAccountsQuery = useQuery({
+    queryKey: ["cashier-balance-accounts", balanceSearch],
+    queryFn: () => orderService.balanceAccounts(balanceSearch),
+    enabled: scope === "cashier" && paymentDialogOpen && paymentPayload.payment_method === "balance",
+    staleTime: 0,
+  });
+  const balanceAccounts = (balanceAccountsQuery.data ?? []) as Array<{user_id: number; name: string; email?: string | null; phone?: string | null; balance: number}>;
+  const selectedBalanceAccount = balanceAccounts.find((account) => String(account.user_id) === paymentPayload.balance_user_id);
   const order = normalizeOrderResponse(query.data);
   const items = normalizeOrderItems(order);
   const status = order?.status;
@@ -2489,8 +2521,7 @@ export function OrderDetailPage({
           <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Receive payment by order</DialogTitle>
-                <p className="text-sm text-muted-foreground">The Cashier selects the payment method when receiving payment. Kiosk customers do not choose a payment method while placing the order.</p>
+                <DialogTitle>Receive Payment</DialogTitle>
               </DialogHeader>
               <div className="grid gap-4">
                 <div className="grid gap-2">
@@ -2498,11 +2529,11 @@ export function OrderDetailPage({
                   <Input value={paymentPayload.customer_name} onChange={(event) => setPaymentPayload({ ...paymentPayload, customer_name: event.target.value })} placeholder="Guest" />
                 </div>
                 <div className="grid gap-2">
-                  <Label>TIN number optional</Label>
+                  <Label>TIN (optional)</Label>
                   <Input value={paymentPayload.customer_tin} onChange={(event) => setPaymentPayload({ ...paymentPayload, customer_tin: event.target.value })} placeholder="Optional customer TIN" />
                 </div>
                 <div className="grid gap-2">
-                  <Label>Cashier payment method</Label>
+                  <Label>Payment method</Label>
                   <Select value={paymentPayload.payment_method} onValueChange={(payment_method) => setPaymentPayload({ ...paymentPayload, payment_method })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -2522,9 +2553,25 @@ export function OrderDetailPage({
                 )}
                 {paymentPayload.payment_method === "balance" && (
                   <div className="grid gap-2">
-                    <Label>Balance Account Owner — Employee / Customer User ID *</Label>
-                    <Input type="number" min="1" value={paymentPayload.balance_user_id} onChange={(event) => setPaymentPayload({ ...paymentPayload, balance_user_id: event.target.value })} placeholder="Enter account owner's User ID" />
-                    <p className="text-xs text-muted-foreground">Cashier-selected payment: the system checks this account first. If the balance is sufficient, the exact order total is deducted only when the Cashier confirms payment. Insufficient balance leaves the order unpaid.</p>
+                    <Label>Balance account *</Label>
+                    <Input value={balanceSearch} onChange={(event) => { setBalanceSearch(event.target.value); setPaymentPayload((previous) => ({ ...previous, balance_user_id: "" })); }} placeholder="Search account" />
+                    <div className="max-h-52 space-y-1 overflow-y-auto rounded-lg border p-2">
+                      {balanceAccountsQuery.isLoading && <p className="p-2 text-sm text-muted-foreground">Loading accounts...</p>}
+                      {balanceAccountsQuery.isError && <p className="p-2 text-sm text-destructive">Unable to load balance accounts. Please retry.</p>}
+                      {!balanceAccountsQuery.isLoading && !balanceAccountsQuery.isError && !balanceAccounts.length && <p className="p-2 text-sm text-muted-foreground">No active balance accounts found.</p>}
+                      {balanceAccounts.map((account) => (
+                        <button type="button" key={account.user_id} onClick={() => setPaymentPayload((previous) => ({ ...previous, balance_user_id: String(account.user_id) }))} className={`flex w-full items-center justify-between rounded-md border p-2 text-left text-sm ${paymentPayload.balance_user_id === String(account.user_id) ? "border-primary bg-muted" : "border-transparent hover:bg-muted"}`}>
+                          <span><strong>{account.name}</strong><span className="block text-xs text-muted-foreground">ID: {account.user_id}{account.phone ? ` · ${account.phone}` : ""}</span></span>
+                          <span className="font-semibold">{money(account.balance)} ETB</span>
+                        </button>
+                      ))}
+                    </div>
+                    {selectedBalanceAccount && <div className="space-y-1 rounded-lg bg-muted/50 p-3 text-sm">
+                      <div className="flex justify-between"><span>Available balance</span><strong>{money(selectedBalanceAccount.balance)} ETB</strong></div>
+                      <div className="flex justify-between"><span>Order total</span><strong>{money(orderTotal)} ETB</strong></div>
+                      <div className="flex justify-between"><span>Balance after payment</span><strong className={Number(selectedBalanceAccount.balance) < Number(orderTotal) ? "text-destructive" : ""}>{money(Number(selectedBalanceAccount.balance) - Number(orderTotal))} ETB</strong></div>
+                      {Number(selectedBalanceAccount.balance) < Number(orderTotal) && <p className="text-destructive">Insufficient balance. Select another account.</p>}
+                    </div>}
                   </div>
                 )}
                 {String(order?.payment_type ?? "cash") !== "credit" && paymentPayload.payment_method !== "balance" && (
@@ -2541,8 +2588,8 @@ export function OrderDetailPage({
                 )}
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-                  <Button disabled={receivePaymentMutation.isPending || !canReceiveOrderPayment || (["card", "mobile", "transfer"].includes(paymentPayload.payment_method) && !paymentPayload.payment_reference.trim()) || (paymentPayload.payment_method === "balance" && !paymentPayload.balance_user_id)} onClick={handleReceivePayment}>
-                    {receivePaymentMutation.isPending ? "Processing..." : paymentPayload.payment_method === "balance" ? "Confirm & Deduct Balance" : "Receive payment"}
+                  <Button disabled={receivePaymentMutation.isPending || !canReceiveOrderPayment || (["card", "mobile", "transfer"].includes(paymentPayload.payment_method) && !paymentPayload.payment_reference.trim()) || (paymentPayload.payment_method === "balance" && (!selectedBalanceAccount || Number(selectedBalanceAccount.balance) < Number(orderTotal) || balanceAccountsQuery.isFetching))} onClick={handleReceivePayment}>
+                    {receivePaymentMutation.isPending ? "Processing..." : paymentPayload.payment_method === "balance" ? "Deduct Balance" : "Receive payment"}
                   </Button>
                 </div>
               </div>

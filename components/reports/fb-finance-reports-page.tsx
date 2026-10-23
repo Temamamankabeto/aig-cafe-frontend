@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,11 @@ const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).p
 const tabLabels: Record<Tab,string> = {cash:"Cash Sales",credit:"Credit Sales",consumption:"Consumption",summary:"Consolidated Report"};
 
 export function FbFinanceReportsPage() {
+  const queryClient = useQueryClient();
+  const [approvalRemarks,setApprovalRemarks] = useState("");
+  const [approvalBusy,setApprovalBusy] = useState(false);
+  const [approvalError,setApprovalError] = useState("");
+  const [confirmAction,setConfirmAction] = useState<"validate"|"approve"|"return"|null>(null);
   const [tab,setTab] = useState<Tab>("cash");
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   const [account,setAccount] = useState("");
@@ -43,6 +48,26 @@ export function FbFinanceReportsPage() {
     queryFn:async()=> (await api.get("/reports/fb-finance",{params:{date_from:from,date_to:to,...(account?{credit_account_id:account}:{}),...(person?{authorized_person:person}:{})}})).data,
     enabled:valid,
   });
+  const approvalType = tab === "summary" ? null : tab;
+  const approvalParams = { report_type: approvalType, date_from: from, date_to: to, ...(approvalType === "credit" && account ? {credit_account_id:account} : {}), ...(approvalType === "credit" && person ? {authorized_person:person} : {}) };
+  const approval = useQuery<{success:boolean;data:{approval:{id:number;status:string;remarks:string|null;validated_at:string|null;approved_at:string|null}|null;snapshot_current:boolean;can_validate:boolean;can_approve:boolean}} >({
+    queryKey:["fb-approval",approvalType,from,to,account,person],
+    queryFn:async()=> (await api.get("/reports/fb-finance/approval",{params:approvalParams})).data,
+    enabled:valid && approvalType !== null,
+  });
+  const approvalData = approval.data?.data;
+  const submitApproval = async (action:"validate"|"approve"|"return") => {
+    if (!approvalType || approvalBusy) return;
+    setApprovalBusy(true);setApprovalError("");
+    try {
+      await api.post("/reports/fb-finance/approval",{...approvalParams,action,remarks:approvalRemarks});
+      setApprovalRemarks("");
+      setConfirmAction(null);
+      await queryClient.invalidateQueries({queryKey:["fb-approval"]});
+    } catch (err:any) {
+      setApprovalError(err?.response?.data?.message || "Unable to update report approval.");
+    } finally {setApprovalBusy(false);}
+  };
   const data = report.data?.data;
   const sales = useMemo(()=> (data?.sales??[]).filter(row=>row.sale_type===tab),[data,tab]);
   const categorySales = useMemo(() => {
@@ -108,6 +133,8 @@ export function FbFinanceReportsPage() {
     : daily.reduce((a,r)=>a+Number(r.revenue),0);
   const exportHeaders = tab === "credit" ? ["Credit Account","Meal Category","Meal Type","Authorized Person (Order-Based)","Order","Date","Item","Persons / Qty","Total (ETB)"] : headers;
   const exportRows:(string|number)[][] = tab === "credit" ? creditSales.map(r=>[r.credit_account,r.meal_category,r.meal_type,r.meal_category === "order_based" ? r.authorized_person : "",r.order_number,r.report_date,r.item_name,r.quantity,amount(r.amount)]) : rows;
+  const reportQuantity = tab === "credit" ? creditSales.reduce((n,r)=>n+Number(r.quantity||0),0) : tab === "cash" ? sales.reduce((n,r)=>n+Number(r.quantity||0),0) : tab === "consumption" ? consumption.reduce((n,r)=>n+Number(r.quantity||0),0) : 0;
+  const previewRows = tab === "cash" ? categorySales.map(r=>({name:r.category,qty:r.quantity,value:r.amount})) : tab === "credit" ? creditGroups.map(([,g])=>{const r=[...g.categories.values()].flatMap(c=>[...c.meals.values()].flatMap(m=>m.rows));return {name:g.name,qty:sumRows(r).quantity,value:sumRows(r).total};}) : tab === "consumption" ? consumption.map(r=>({name:r.item_name,qty:Number(r.quantity||0),value:Number(r.amount||0)})) : [];
   const csv = () => {
     const esc=(v:string|number)=>`"${String(v).replace(/"/g,'""')}"`;
     const content=[exportHeaders,...exportRows].map(row=>row.map(esc).join(",")).join("\r\n");
@@ -132,6 +159,32 @@ export function FbFinanceReportsPage() {
       {tab === "credit" && <div className="grid gap-3 md:grid-cols-2 print:hidden">
         <label className="text-sm">Credit account<select aria-label="Credit account" className="block w-full rounded-md border bg-background p-2" value={account} onChange={e=>{setAccount(e.target.value);setPerson("");}}><option value="">All accounts</option>{(data?.credit_filters?.accounts??[]).map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
         <label className="text-sm">Authorized person<select aria-label="Authorized person" className="block w-full rounded-md border bg-background p-2" value={person} onChange={e=>setPerson(e.target.value)}><option value="">All persons</option>{[...new Set((data?.credit_filters?.persons??[]).filter(p=>(!account||String(p.credit_account_id)===account)).map(p=>p.name).filter(Boolean))].map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+      </div>}
+      {approvalType && <div className="rounded-lg border p-3 space-y-3 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-medium">{tabLabels[approvalType]} approval: <span className="capitalize">{approvalData?.approval?.status ?? "Draft"}</span></div>
+          {approvalData?.approval && !approvalData.snapshot_current && <span className="text-sm text-destructive">Report data changed after validation. Revalidation required.</span>}
+        </div>
+        {approvalData?.approval?.remarks && <p className="text-sm text-muted-foreground">Remarks: {approvalData.approval.remarks}</p>}
+        <div className="flex flex-wrap gap-2 items-center">
+          <Input className="max-w-sm" placeholder="Remarks (required when returning)" value={approvalRemarks} onChange={e=>setApprovalRemarks(e.target.value)}/>
+          {approvalData?.can_validate && !["validated","approved"].includes(approvalData?.approval?.status ?? "") && <Button disabled={approvalBusy || !data || report.isFetching} onClick={()=>{setApprovalError("");setConfirmAction("validate")}}>Validate & Submit to Manager</Button>}
+          {approvalData?.can_approve && approvalData?.approval?.status === "validated" && <Button disabled={approvalBusy || !approvalData.snapshot_current} onClick={()=>{setApprovalError("");setConfirmAction("approve")}}>Approve Report</Button>}
+          {approvalData?.approval?.status === "validated" && !approvalData.can_approve && approvalData.snapshot_current && <span className="text-sm text-muted-foreground">Awaiting Manager Approval</span>}
+          {(approvalData?.can_validate || approvalData?.can_approve) && approvalData?.approval?.status === "validated" && <Button variant="outline" disabled={approvalBusy || !approvalRemarks.trim()} onClick={()=>{setApprovalError("");setConfirmAction("return")}}>Return for Correction</Button>}
+        </div>
+        {approvalError && <p className="text-sm text-destructive">{approvalError}</p>}
+      </div>}
+      {confirmAction && approvalType && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 print:hidden" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget&&!approvalBusy)setConfirmAction(null)}}>
+        <div role="dialog" aria-modal="true" aria-labelledby="fb-approval-dialog-title" className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl border bg-background p-5 shadow-xl space-y-4">
+          <div className="flex items-start justify-between gap-3"><div><h2 id="fb-approval-dialog-title" className="text-lg font-semibold">{confirmAction === "validate" ? "Validate & Submit to Manager" : confirmAction === "approve" ? "Approve Report" : "Return for Correction"}</h2><p className="text-sm text-muted-foreground">{tabLabels[approvalType]} · {from} to {to}</p></div><Button type="button" variant="ghost" disabled={approvalBusy} onClick={()=>setConfirmAction(null)}>Close</Button></div>
+          <div className="grid grid-cols-2 gap-3 rounded-lg border p-3 text-sm"><div><span className="text-muted-foreground">Report type</span><p className="font-medium">{tabLabels[approvalType]}</p></div><div><span className="text-muted-foreground">Total quantity</span><p className="font-medium">{reportQuantity}</p></div><div className="col-span-2"><span className="text-muted-foreground">Report total</span><p className="text-xl font-bold">{amount(total)} ETB</p></div></div>
+          <div className="max-h-48 overflow-y-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Category / Item</TableHead><TableHead className="text-right">Quantity</TableHead><TableHead className="text-right">Total (ETB)</TableHead></TableRow></TableHeader><TableBody>{previewRows.map((r,i)=><TableRow key={`${r.name}-${i}`}><TableCell>{r.name}</TableCell><TableCell className="text-right">{r.qty}</TableCell><TableCell className="text-right">{amount(r.value)}</TableCell></TableRow>)}<TableRow className="font-semibold"><TableCell>Total</TableCell><TableCell className="text-right">{reportQuantity}</TableCell><TableCell className="text-right">{amount(total)}</TableCell></TableRow></TableBody></Table></div>
+          {confirmAction === "approve" && approvalData?.approval?.remarks && <div className="rounded-lg border p-3 text-sm"><span className="text-muted-foreground">F&B validation remarks</span><p>{approvalData.approval.remarks}</p>{approvalData.approval.validated_at && <p className="text-muted-foreground">Validated: {approvalData.approval.validated_at}</p>}</div>}
+          <label className="block text-sm font-medium">Remarks {confirmAction === "return" ? "(required)" : "(optional)"}<Input className="mt-2" value={approvalRemarks} onChange={e=>setApprovalRemarks(e.target.value)} placeholder="Enter remarks" /></label>
+          {approvalError && <p role="alert" className="text-sm text-destructive">{approvalError}</p>}
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={approvalBusy} onClick={()=>setConfirmAction(null)}>Cancel</Button><Button type="button" disabled={approvalBusy || !data || report.isFetching || (confirmAction === "return" && !approvalRemarks.trim())} onClick={()=>submitApproval(confirmAction)}>{approvalBusy ? "Processing..." : confirmAction === "validate" ? "Confirm & Submit to Manager" : confirmAction === "approve" ? "Confirm Approval" : "Return for Correction"}</Button></div>
+        </div>
       </div>}
       <div className="hidden print:block text-center"><h2 className="font-bold text-lg">ADAMA INVESTMENT GROUP (AIG)</h2><h3 className="font-semibold">{tabLabels[tab]}</h3><p>{from} — {to}</p></div>
       {!valid && <p className="text-destructive">Choose a valid date range.</p>}

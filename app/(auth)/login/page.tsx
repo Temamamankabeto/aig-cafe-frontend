@@ -106,11 +106,14 @@ export default function LoginPage() {
 
   return (
     <>
-      <nav aria-label="Public navigation" className="fixed left-4 right-4 top-4 z-[100] flex items-center justify-between gap-3">
-        <a href="/waiter-order" className="inline-flex min-h-10 items-center rounded-lg border border-[#f4be4b]/60 bg-[#071f42]/95 px-4 text-sm font-semibold text-[#f4be4b] shadow-lg transition hover:bg-[#0a2850] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]">
-          Waiter Ordering
-        </a>
-        <LanguageSwitcher />
+      <nav aria-label="Public navigation" className="fixed inset-x-0 top-0 z-[100] flex min-h-[78px] flex-col items-center justify-center gap-2 px-3 py-2 sm:px-4 md:h-[9.2vh] md:min-h-0 md:flex-row md:justify-center md:gap-2 md:py-0">
+        <div className="flex flex-wrap items-center justify-center gap-2 md:max-w-[calc(100%-380px)]">
+          <a href="/waiter-order" className="inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-lg border border-[#f4be4b]/65 bg-[#071f42]/95 px-3 text-xs font-semibold text-[#f4be4b] shadow-md transition hover:bg-[#0a2850] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166] sm:text-sm">Waiter Ordering</a>
+          <a href="/staff-package" className="inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-lg border border-[#f4be4b]/65 bg-[#071f42]/95 px-3 text-xs font-semibold text-[#f4be4b] shadow-md transition hover:bg-[#0a2850] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166] sm:text-sm">Staff Package Order</a>
+          <a href="/kiosk" className="inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-lg border border-[#f4be4b]/65 bg-[#071f42]/95 px-3 text-xs font-semibold text-[#f4be4b] shadow-md transition hover:bg-[#0a2850] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166] sm:text-sm">{t("Kiosk Ordering")}</a>
+          <a href="/public/complaints" className="inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-lg border border-[#f4be4b]/65 bg-[#071f42]/95 px-3 text-xs font-semibold text-[#f4be4b] shadow-md transition hover:bg-[#0a2850] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166] sm:text-sm">Public Complaint</a>
+        </div>
+        <div className="md:absolute md:right-4 md:top-1/2 md:-translate-y-1/2"><LanguageSwitcher /></div>
       </nav>
     <main className="relative min-h-[100dvh] overflow-x-hidden bg-[#041a38] text-white">
       {/* Desktop/tablet reference layout: preserve the existing exact design. */}
@@ -149,18 +152,14 @@ export default function LoginPage() {
           </button>
           <a href="/forgot-password" aria-label="Forgot Password?" className="absolute rounded outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]" style={{ left: "40.32%", top: "79.63%", width: "7.15%", height: "3.55%" }}><span className="sr-only">Forgot Password?</span></a>
           <a href="/register" aria-label="Create customer account" className="absolute rounded outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]" style={{ left: "49.90%", top: "79.63%", width: "11.55%", height: "3.55%" }}><span className="sr-only">Create customer account</span></a>
-          <div className="absolute flex items-center justify-center gap-3" style={{ left: "37.20%", top: "85%", width: "25.55%" }}>
-            <button type="button" onClick={() => setQrOpen(true)} className="h-10 flex-1 rounded-lg border border-[#f4be4b]/60 bg-[#071f42]/90 px-3 text-sm font-semibold text-[#f4be4b] shadow-lg transition hover:bg-[#0a2850]">QR Card Login</button>
-            <button type="button" onClick={() => router.push("/kiosk")} className="h-10 flex-1 rounded-lg bg-[#f4be4b] px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-[#ffd166] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">{t("Kiosk Ordering")}</button>
+          <div className="absolute flex items-center justify-center" style={{ left: "42%", top: "87.7%", width: "16%" }}>
+            <button type="button" onClick={() => setQrOpen(true)} className="h-10 w-full rounded-lg border border-[#f4be4b]/60 bg-[#071f42]/95 px-3 text-sm font-semibold text-[#f4be4b] shadow-lg transition hover:bg-[#0a2850] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]">QR Card Login</button>
           </div>
-          <button type="button" onClick={() => router.push("/public/complaints")} aria-label="Public Complaint" className="absolute flex items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/95 px-3 text-sm font-bold text-[#041a38] shadow-lg transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffd166]" style={{ left: "37.20%", top: "91%", width: "25.55%", height: "4.5%" }}>
-            Public Complaint
-          </button>
         </form>
       </div>
 
       {/* Mobile layout: native responsive controls instead of scaling the desktop screenshot. */}
-      <div className="relative z-20 flex min-h-[100dvh] items-center justify-center px-4 py-8 sm:px-6 md:hidden">
+      <div className="relative z-20 flex min-h-[100dvh] items-center justify-center px-4 pb-8 pt-44 sm:px-6 md:hidden">
         <div className="w-full max-w-[420px]">
           <div className="mb-7 text-center">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#f4be4b]/35 bg-[#0a2850] shadow-lg shadow-black/20">
@@ -189,9 +188,7 @@ export default function LoginPage() {
                 {loading ? t("Signing in…") : t("Login")}
               </button>
               <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-slate-500"><span className="h-px flex-1 bg-white/10" />or<span className="h-px flex-1 bg-white/10" /></div>
-              <button type="button" onClick={() => router.push("/public/complaints")} className="flex h-12 w-full items-center justify-center rounded-xl border border-white/20 bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99]">Public Complaint</button>
               <button type="button" onClick={() => setQrOpen(true)} className="flex h-12 w-full items-center justify-center rounded-xl border border-[#f4be4b]/60 bg-transparent px-4 text-base font-bold text-[#f4be4b]">{t("Scan QR Card")}</button>
-              <button type="button" onClick={() => router.push("/kiosk")} className="flex h-12 w-full items-center justify-center rounded-xl bg-white px-4 text-base font-bold text-[#041a38] shadow-lg transition active:scale-[0.99]">{t("Kiosk Ordering")}</button>
             </div>
             <div className="mt-5 flex flex-col items-center justify-center gap-3 text-sm min-[390px]:flex-row min-[390px]:gap-5">
               <a href="/forgot-password" className="font-medium text-[#f4be4b] hover:underline">{t("Forgot Password?")}</a>

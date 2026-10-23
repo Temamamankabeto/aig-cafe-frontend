@@ -111,6 +111,7 @@ export const sidebarConfig: Record<AppRoleKey, RoleSidebar> = {
     ]),
     group("Approvals", ShieldCheck, [
       { label: "Credit Order Approvals", href: `${orderBase}/credit-orders` },
+      { label: "F&B Report Approvals", href: "/dashboard/cafeteria-manager/fb-report-approvals" },
       { label: "Discount & Void Approvals", href: `${orderBase}/orders`, permission: "orders.read" },
       { label: "Refund Approvals", href: "/dashboard/modules/bills" },
       { label: "Purchase Request Approvals", href: "/dashboard/purchases/requests", permission: "purchase_orders.read" },
