@@ -1,22 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { Button } from "@/components/ui/button";
 
 function cameraError(error: unknown): string {
   const name = error instanceof Error ? error.name : "UnknownError";
   const detail = error instanceof Error ? error.message : String(error);
-  if (name === "NotAllowedError" || name === "PermissionDeniedError") return `Camera access was rejected by the browser (${name}: ${detail}). Check Chrome site camera permission and Android Camera access, then retry. If permission is already allowed, retry the camera.`;
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No usable camera was found. Check that the tablet camera is available.";
-  if (name === "NotReadableError" || name === "TrackStartError") return "The camera is busy or cannot start. Close other camera apps and try again.";
-  if (name === "OverconstrainedError") return "The requested camera is unavailable on this tablet. Please retry the camera.";
-  return `Unable to start camera (${name}: ${detail}). Please try again.`;
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") return `Chrome denied live camera access (${name}: ${detail}). You can use Take Photo / Choose QR Image below without enabling the live scanner.`;
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No usable camera was found for live scanning. Try Take Photo / Choose QR Image.";
+  if (name === "NotReadableError" || name === "TrackStartError") return "Camera is busy or cannot start. Close other camera apps or use Take Photo / Choose QR Image.";
+  if (name === "OverconstrainedError") return "The requested camera is unavailable. Try the photo option.";
+  return `Unable to start live camera (${name}: ${detail}). Try the photo option.`;
 }
 
 export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel = "Scan Waiter QR Card with Tablet Camera" }: { onScan: (code: string) => void; disabled?: boolean; buttonLabel?: string }) {
   const [active, setActive] = useState(false);
   const [error, setError] = useState("");
+  const [readingPhoto, setReadingPhoto] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const controls = useRef<IScannerControls | null>(null);
   const accepted = useRef(false);
@@ -30,7 +31,7 @@ export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel =
     const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 250 });
     const element = video.current;
     if (!element) {
-      setError("Camera preview could not be initialized. Please try again.");
+      setError("Camera preview could not be initialized. Try the photo option.");
       setActive(false);
       return;
     }
@@ -47,10 +48,7 @@ export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel =
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
         throw new Error("Camera API unavailable in this browser or insecure context");
       }
-      // Let the browser choose a supported camera on every device.
-      return await reader.decodeFromConstraints(
-        { video: true, audio: false }, element, handleResult
-      );
+      return reader.decodeFromConstraints({ video: { facingMode: { ideal: "environment" } }, audio: false }, element, handleResult);
     };
 
     void start().then((control) => {
@@ -75,16 +73,38 @@ export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel =
     };
   }, [active]);
 
+  const scanPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || disabled || readingPhoto) return;
+    setError("");
+    setReadingPhoto(true);
+    const url = URL.createObjectURL(file);
+    try {
+      const reader = new BrowserQRCodeReader();
+      const result = await reader.decodeFromImageUrl(url);
+      controls.current?.stop();
+      setActive(false);
+      onScanRef.current(result.getText());
+    } catch (cause) {
+      console.error("ENTERPOS waiter QR photo decoding failed", cause);
+      setError("Could not read a QR code from that photo. Ensure the entire card QR code is sharp and well lit, then try again.");
+    } finally {
+      URL.revokeObjectURL(url);
+      setReadingPhoto(false);
+    }
+  };
+
   return <div className="space-y-2">
-    <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(""); setActive(v => !v); }}>
+    <Button type="button" variant="outline" className="w-full" disabled={disabled || readingPhoto} onClick={() => { setError(""); setActive(v => !v); }}>
       {active ? "Close camera" : buttonLabel}
     </Button>
     {active && <video ref={video} autoPlay playsInline muted className="h-56 w-full rounded-xl bg-black object-cover" />}
-    {error && <div role="alert" className="space-y-2 text-sm text-red-700">
-      <p>{error}</p>
-      <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(""); setActive(true); }}>
-        Retry camera
-      </Button>
-    </div>}
+    {error && <div role="alert" className="text-sm text-red-700"><p>{error}</p></div>}
+    <label className={`flex min-h-10 w-full items-center justify-center rounded-md border px-3 py-2 text-center text-sm font-medium ${disabled || readingPhoto ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
+      {readingPhoto ? "Reading QR photo..." : "Take Photo / Choose QR Image (camera fallback)"}
+      <input type="file" accept="image/*" capture="environment" className="sr-only" disabled={disabled || readingPhoto} onChange={scanPhoto} />
+    </label>
+    {error && <Button type="button" variant="outline" className="w-full" disabled={disabled || readingPhoto} onClick={() => { setError(""); setActive(true); }}>Retry live camera</Button>}
   </div>;
 }
