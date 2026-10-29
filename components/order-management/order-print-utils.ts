@@ -22,33 +22,8 @@ function money(value: unknown) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value || !value.trim()) {
-    return "Date unavailable";
-  }
-
-  const normalized = value.trim();
-
-  // Interpret timezone-less Laravel timestamps as UTC.
-  const localTimestamp =
-    /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalized)
-      ? `${normalized.replace(" ", "T")}Z`
-      : normalized;
-
-  const date = new Date(localTimestamp);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Date unavailable";
-  }
-
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Africa/Addis_Ababa",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  }).format(date);
+  // Use the current date and time of the device printing the ticket.
+  return new Date().toLocaleString();
 }
 
 function numberValue(...values: unknown[]) {
