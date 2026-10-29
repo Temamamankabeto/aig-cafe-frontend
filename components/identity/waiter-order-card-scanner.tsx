@@ -1,23 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { Button } from "@/components/ui/button";
 
 function cameraError(error: unknown): string {
   const name = error instanceof Error ? error.name : "UnknownError";
   const detail = error instanceof Error ? error.message : String(error);
-  if (name === "NotAllowedError" || name === "PermissionDeniedError") return `Chrome denied live camera access (${name}: ${detail}). You can use Take Photo / Choose QR Image below without enabling the live scanner.`;
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No usable camera was found for live scanning. Try Take Photo / Choose QR Image.";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") return `Chrome denied live camera access (${name}: ${detail}). Allow Camera for this site in Chrome and retry.`;
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No usable camera was found for live scanning. Check Chrome camera permission and retry.";
   if (name === "NotReadableError" || name === "TrackStartError") return "Camera is busy or cannot start. Close other camera apps or use Take Photo / Choose QR Image.";
-  if (name === "OverconstrainedError") return "The requested camera is unavailable. Try the photo option.";
-  return `Unable to start live camera (${name}: ${detail}). Try the photo option.`;
+  if (name === "OverconstrainedError") return "The requested camera is unavailable. Check Chrome camera permission and retry.";
+  return `Unable to start live camera (${name}: ${detail}). Check Chrome camera permission and retry.`;
 }
 
 export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel = "Scan Waiter QR Card with Tablet Camera" }: { onScan: (code: string) => void; disabled?: boolean; buttonLabel?: string }) {
   const [active, setActive] = useState(false);
   const [error, setError] = useState("");
-  const [readingPhoto, setReadingPhoto] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const controls = useRef<IScannerControls | null>(null);
   const accepted = useRef(false);
@@ -31,7 +30,7 @@ export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel =
     const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 250 });
     const element = video.current;
     if (!element) {
-      setError("Camera preview could not be initialized. Try the photo option.");
+      setError("Camera preview could not be initialized. Check Chrome camera permission and retry.");
       setActive(false);
       return;
     }
@@ -73,38 +72,12 @@ export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel =
     };
   }, [active]);
 
-  const scanPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file || disabled || readingPhoto) return;
-    setError("");
-    setReadingPhoto(true);
-    const url = URL.createObjectURL(file);
-    try {
-      const reader = new BrowserQRCodeReader();
-      const result = await reader.decodeFromImageUrl(url);
-      controls.current?.stop();
-      setActive(false);
-      onScanRef.current(result.getText());
-    } catch (cause) {
-      console.error("ENTERPOS waiter QR photo decoding failed", cause);
-      setError("Could not read a QR code from that photo. Ensure the entire card QR code is sharp and well lit, then try again.");
-    } finally {
-      URL.revokeObjectURL(url);
-      setReadingPhoto(false);
-    }
-  };
-
   return <div className="space-y-2">
-    <Button type="button" variant="outline" className="w-full" disabled={disabled || readingPhoto} onClick={() => { setError(""); setActive(v => !v); }}>
+    <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(""); setActive(v => !v); }}>
       {active ? "Close camera" : buttonLabel}
     </Button>
-    {active && <video ref={video} autoPlay playsInline muted className="h-56 w-full rounded-xl bg-black object-cover" />}
+    {active && <div className="space-y-2"><video ref={video} autoPlay playsInline muted className="h-64 w-full rounded-xl bg-black object-cover" /><p className="text-center text-sm">Point the camera at the waiter QR code. Scanning happens automatically—no photo needed.</p></div>}
     {error && <div role="alert" className="text-sm text-red-700"><p>{error}</p></div>}
-    <label className={`flex min-h-10 w-full items-center justify-center rounded-md border px-3 py-2 text-center text-sm font-medium ${disabled || readingPhoto ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
-      {readingPhoto ? "Reading QR photo..." : "Take Photo / Choose QR Image (camera fallback)"}
-      <input type="file" accept="image/*" capture="environment" className="sr-only" disabled={disabled || readingPhoto} onChange={scanPhoto} />
-    </label>
-    {error && <Button type="button" variant="outline" className="w-full" disabled={disabled || readingPhoto} onClick={() => { setError(""); setActive(true); }}>Retry live camera</Button>}
+    {error && <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(""); setActive(true); }}>Retry live camera</Button>}
   </div>;
 }
