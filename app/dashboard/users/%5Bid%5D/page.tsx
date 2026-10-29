@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, Loader2, QrCode, Printer, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { userService } from "@/services/user-management/user.service";
+import { LocalWaiterQr, makeQrSvg } from "@/components/identity/local-waiter-qr";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -135,10 +136,11 @@ export default function UserDetailPage() {
 
   function printQrCard() {
     if (!user || !qrCard) return;
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(qrCard.qr_token)}`;
+    const svg = makeQrSvg(qrCard.qr_token);
+    const safeName = String(user.name || "Waiter").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c] || c));
     const win = window.open("", "_blank", "width=520,height=680");
-    if (!win) return;
-    win.document.write(`<html><head><title>QR Login Card</title><style>body{font-family:Arial;text-align:center;padding:40px}img{width:260px;height:260px}.card{border:1px solid #ddd;border-radius:18px;padding:30px}h2{margin-bottom:4px}.muted{color:#666}</style></head><body><div class="card"><h2>AIG Cafeteria</h2><p class="muted">Secure QR Login Card</p><img src="${qrUrl}"/><h3>${user.name}</h3><p>User ID: ${user.id}</p><p><strong>Secure code:</strong><br/><span style="font-family:monospace;word-break:break-all">${qrCard.qr_token}</span></p><p class="muted">Keep this card private. If lost, ask an administrator to revoke and regenerate it.</p></div><script>setTimeout(()=>window.print(),800)<\/script></body></html>`);
+    if (!win) return toast.error("Allow pop-ups to print the waiter card.");
+    win.document.write(`<html><head><title>AIG Restaurant Digital Card</title><style>@page{size:A4;margin:15mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;display:flex;justify-content:center;padding:24px;margin:0}.card{width:330px;border:2px solid #0b2340;border-radius:16px;overflow:hidden;text-align:center}.top{background:#0b2340;color:white;padding:20px 12px;font-size:18px;font-weight:bold}.content{padding:20px 18px 24px}.qr{width:220px;height:220px;margin:10px auto 16px}.qr svg{width:100%;height:100%}h2{font-size:24px;margin:0 0 18px}.warning{color:#555;font-size:12px;line-height:1.4;margin:0}</style></head><body><div class="card"><div class="top">AIG Restaurant Digital Card</div><div class="content"><div class="qr">${svg}</div><h2>${safeName}</h2><p class="warning">Treat this card as a login credential. Report lost cards immediately.</p></div></div><script>window.onload=()=>window.print()<\/script></body></html>`);
     win.document.close();
   }
 
@@ -309,13 +311,13 @@ export default function UserDetailPage() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><QrCode className="h-5 w-5" />QR Login Card</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2"><QrCode className="h-5 w-5" />Waiter / Staff QR Card</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">Issue a secure QR card for passwordless login. Regenerating automatically invalidates the previous card.</p>
+              <p className="text-sm text-muted-foreground">Issue and print a QR identification card for a registered waiter. This card also permits QR login; keep it private. Regenerating automatically invalidates the previous card.</p>
               {qrCard ? (
                 <>
                   <div className="rounded-xl border bg-white p-4 text-center">
-                    <img className="mx-auto h-44 w-44" alt="User QR login card" src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrCard.qr_token)}`} />
+                    <div className="flex justify-center"><LocalWaiterQr code={qrCard.qr_token} size={176} /></div>
                     <p className="mt-2 text-xs text-slate-500">User ID: {user.id}</p>
                     <p className="mt-2 break-all rounded-lg bg-slate-50 p-2 font-mono text-[10px] text-slate-600"><span className="font-sans font-semibold">Secure code (manual login):</span><br />{qrCard.qr_token}</p>
                   </div>

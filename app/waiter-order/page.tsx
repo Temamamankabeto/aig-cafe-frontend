@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OrderTicketPreviewDialog } from "@/components/order-management/order-ticket-preview-dialog";
+import { WaiterOrderCardScanner } from "@/components/identity/waiter-order-card-scanner";
 import type { MenuCategory, MenuItem } from "@/types/menu-management";
 
 type TableOption = { id: number | string; table_number?: string | number; name?: string; status?: string };
@@ -30,6 +31,7 @@ export default function PublicWaiterOrderPage() {
   const [tableId, setTableId] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const submissionLock = useRef(false);
   const [paymentType, setPaymentType] = useState<"cash" | "credit">("cash");
   const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([]);
   const [creditLoading, setCreditLoading] = useState(false);
@@ -105,30 +107,47 @@ export default function PublicWaiterOrderPage() {
   }
 
 
-  async function placeOrder(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function placeOrder(event?: React.FormEvent<HTMLFormElement>, scannedCard?: string) {
+    event?.preventDefault();
+    if (submissionLock.current) return;
+    if (paymentType === "cash" && !scannedCard) return setError("Scan a valid waiter card first.");
     setError("");
     if (!isFixedMeal && !cart.length) return setError("Add at least one item.");
     if (isFixedMeal && !(Number(selectedMealType?.price_per_person) > 0)) return setError("Set a valid price per person in Meal Types before ordering.");
     if (paymentType === "credit" && selectedMealType && !isOrderBased && (!Number.isInteger(creditPersonCount) || creditPersonCount < 1)) return setError("Enter a valid number of persons.");
     if (orderType === "dine_in" && !tableId) return setError("Select a table.");
+    submissionLock.current = true;
     setSubmitting(true);
     try {
       const response = await api.post("/public/waiter-orders", {
-        phone: phone.trim(), password, order_type: orderType, payment_type: paymentType,
+        ...(paymentType === "cash" ? { card_code: scannedCard } : { phone: phone.trim(), password }), order_type: orderType, payment_type: paymentType,
         ...(paymentType === "credit" ? { credit_account_id: Number(creditAccountId), ...(isOrderBased ? { credit_account_user_id: Number(creditPersonId) } : { number_of_person: creditPersonCount }), credit_meal_type_id: Number(creditMealTypeId) } : {}),
         table_id: orderType === "dine_in" ? Number(tableId) : null,
         customer_name: "Guest", notes: "",
         items: cart.map(line => ({ menu_item_id: line.item.id, quantity: line.quantity })),
       });
       const order = response.data?.data;
+      // Order is created first. Confirmation is a separate, retryable operation; never recreate on confirmation failure.
+      let autoConfirmed = false;
+      if (paymentType === "cash") {
+        try {
+          const confirmation = await api.post(`/public/waiter-orders/${order.id}/confirm`, { card_code: scannedCard });
+          if (confirmation.data?.success !== true) throw new Error(confirmation.data?.message || "Confirmation failed");
+          autoConfirmed = true;
+        } catch (confirmationError: unknown) {
+          const e = confirmationError as { response?: { data?: { message?: string } }; message?: string };
+          setError(`Order ${order.order_number} was created, but confirmation failed: ${e.response?.data?.message || e.message || "Unknown error"}. Scan the card again on the order screen to retry; do not place a new order.`);
+        }
+      }
+      setConfirmed(autoConfirmed);
+      if (autoConfirmed) setTicketOpen(true);
       setCompleted({ order_number: order?.order_number || "Created", total: Number(order?.total ?? total), waiter_name: order?.waiter_name || "Waiter", waiterId: Number(order?.waiter_id ?? order?.waiter?.id ?? order?.created_by ?? 0), id: Number(order?.id), numberOfPersons: paymentType === "credit" ? (Number(order?.number_of_person) > 0 ? Number(order.number_of_person) : (isOrderBased ? 1 : creditPersonCount)) : null, paymentType, lines: isFixedMeal ? [{ name: selectedMealType!.name, quantity: creditPersonCount, price: Number(selectedMealType!.price_per_person) }] : cart.map(line => ({ name: line.item.name, quantity: line.quantity, price: Number(line.item.price) })), orderType, tableId: orderType === "dine_in" ? Number(tableId) : 0, table: tables.find(t => String(t.id) === tableId)?.name || (tables.find(t => String(t.id) === tableId)?.table_number != null ? `Table ${tables.find(t => String(t.id) === tableId)?.table_number}` : ""), placedAt: new Date().toLocaleString(), notes: "" });
       setCart([]); setPhone(""); setPassword(""); setCreditVerified(false); setCreditAccounts([]); setCreditAccountId(""); setCreditMealCategory(""); setCreditMealTypeId(""); setCreditPersonId(""); setCreditPersonCount(1); setTableId(""); setCheckout(false);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } } };
-      setError(err.response?.data?.message || "Order could not be submitted. Please verify your waiter phone and password.");
+      setError(err.response?.data?.message || "Order could not be submitted. Check the QR card and try again.");
       setPassword("");
-    } finally { setSubmitting(false); }
+    } finally { setSubmitting(false); submissionLock.current = false; }
   }
 
   const [confirmed, setConfirmed] = useState(false);
@@ -141,21 +160,38 @@ export default function PublicWaiterOrderPage() {
     setCreditMealCategory(""); setCreditMealTypeId(""); setCreditPersonId(""); setCreditPersonCount(1); setCheckout(false); setError("");
   }
 
-  async function confirmAndPrint() {
-    if (!completed || confirmed) return;
-    const credentials = window.prompt("Enter registered waiter phone number to confirm:");
-    if (!credentials) return;
-    const secret = window.prompt("Enter waiter password:");
-    if (!secret) return;
+  async function confirmAndPrint(scannedCard: string) {
+    if (!completed || confirmed || submissionLock.current || completed.paymentType !== "cash") return;
+    submissionLock.current = true;
+    setSubmitting(true);
     try {
-      const result = await api.post(`/public/waiter-orders/${completed.id}/confirm`, { phone: credentials.trim(), password: secret });
+      const result = await api.post(`/public/waiter-orders/${completed.id}/confirm`, { card_code: scannedCard });
+      if (result.data?.success !== true) throw new Error(result.data?.message || "Confirmation failed");
+      setConfirmed(true);
+      setTicketOpen(true);
+      setError("");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } }; message?: string };
+      setError(err.response?.data?.message || err.message || "Order confirmation failed. Scan the same waiter's card to retry.");
+    } finally { setSubmitting(false); submissionLock.current = false; }
+  }
+
+  async function confirmCreditOrder() {
+    if (!completed || completed.paymentType !== "credit" || submitting) return;
+    const enteredPhone = window.prompt("Head Waiter phone number:");
+    if (!enteredPhone) return;
+    const enteredPassword = window.prompt("Head Waiter password:");
+    if (!enteredPassword) return;
+    setSubmitting(true);
+    try {
+      const result = await api.post(`/public/waiter-orders/${completed.id}/confirm`, { phone: enteredPhone.trim(), password: enteredPassword });
       if (result.data?.success !== true) throw new Error(result.data?.message || "Confirmation failed");
       setConfirmed(true);
       setTicketOpen(true);
     } catch (e: unknown) {
       const err = e as { response?: { data?: { message?: string } }; message?: string };
-      window.alert(err.response?.data?.message || err.message || "Order confirmation failed.");
-    }
+      setError(err.response?.data?.message || err.message || "Credit order confirmation failed.");
+    } finally { setSubmitting(false); }
   }
 
   if (completed) return <>
@@ -163,7 +199,8 @@ export default function PublicWaiterOrderPage() {
       <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-600"/><h1 className="mt-4 text-2xl font-bold">Order submitted</h1>
       <p className="mt-3">Waiter: <strong>{completed.waiter_name}</strong></p><p>Order: <strong>{completed.order_number}</strong></p>
       <p className="mt-2 text-xl font-bold">{money(completed.total)}</p><p className="mt-4 rounded-xl bg-amber-50 p-3 text-amber-900">{confirmed ? "Order Confirmed — Sent to Kitchen/Bar." : "Order submitted. Confirm & Print to send it to Kitchen/Bar without Cashier confirmation."}</p>
-      <Button className="mt-6 h-12 w-full" onClick={confirmed ? () => setTicketOpen(true) : confirmAndPrint}>{confirmed ? "View & Print Ticket" : "Confirm & Print Order"}</Button>
+      {confirmed ? <Button className="mt-6 h-12 w-full" onClick={() => setTicketOpen(true)}>View & Print Ticket</Button> : completed.paymentType === "cash" ? <div className="mt-6"><p className="mb-2 text-sm text-amber-800">Order already created. Scan the same waiter card to retry confirmation; do not submit another order.</p><WaiterOrderCardScanner onScan={confirmAndPrint} disabled={submitting} buttonLabel={submitting ? "Confirming..." : "Scan Card to Retry Confirm & Print"}/></div> : <Button className="mt-6 h-12 w-full" disabled={submitting} onClick={confirmCreditOrder}>Confirm Credit Order & Print (Head Waiter)</Button>}
+      {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
       <Button className="mt-3 h-12 w-full" onClick={resetForNextOrder}>New Waiter Order</Button>
     </section></main>
     {confirmed && <OrderTicketPreviewDialog
@@ -222,9 +259,13 @@ export default function PublicWaiterOrderPage() {
         </div>}</div>
         
         <div className="my-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-4 text-lg font-bold sm:text-xl"><span>Total (VAT included)</span><span>{money(total)}</span></div>
-        <Button className="h-12 w-full text-base font-semibold" disabled={(!isFixedMeal && !cart.length) || (isFixedMeal && !(Number(selectedMealType?.price_per_person) > 0)) || (orderType === "dine_in" && !tableId) || (paymentType === "credit" && (!creditVerified || !creditAccountId || !creditMealTypeId || (isOrderBased ? !creditPersonId : !Number.isInteger(creditPersonCount) || creditPersonCount < 1)))} onClick={()=>{setCheckout(true);setError("");}}>Place Order</Button>
-        {checkout && paymentType === "credit" && <form onSubmit={placeOrder} className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4"><p className="text-sm">Credit account and Head Waiter identity verified.</p><Button type="submit" disabled={submitting || !creditVerified} className="w-full">{submitting ? "Submitting..." : "Submit Credit Order"}</Button><Button type="button" variant="outline" className="w-full" onClick={()=>setCheckout(false)}>Cancel</Button></form>}
-        {checkout && paymentType === "cash" && <form onSubmit={placeOrder} className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4"><h3 className="font-bold">Verify the waiter placing this order</h3><p className="text-sm">Enter your own registered waiter phone and password. No customer login is required.</p><Input autoComplete="off" inputMode="tel" required value={phone} onChange={e=>{setPhone(e.target.value);setCreditAccounts([]);setCreditMealCategories([]);setCreditAccountId("");setCreditPersonId("");}} placeholder="Waiter phone number"/><Input type="password" autoComplete="off" required value={password} onChange={e=>{setPassword(e.target.value);setCreditAccounts([]);setCreditMealCategories([]);setCreditAccountId("");setCreditPersonId("");}} placeholder="Waiter password"/><Button type="submit" disabled={submitting} className="w-full">{submitting ? "Submitting..." : "Verify Waiter & Submit to Cashier"}</Button><Button type="button" variant="outline" className="w-full" onClick={()=>{setCheckout(false);setPassword("");}}>Cancel</Button></form>}
+        {paymentType === "cash" ? <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm font-medium">Scan AIG Restaurant Digital Card to verify the waiter, confirm the order and open the print ticket.</p>
+          <WaiterOrderCardScanner buttonLabel={submitting ? "Processing order..." : "Verify Waiter, Confirm & Print Order"} disabled={submitting || !cart.length || (orderType === "dine_in" && !tableId)} onScan={code => { void placeOrder(undefined, code); }}/>
+        </div> : <>
+          <Button className="h-12 w-full text-base font-semibold" disabled={(!isFixedMeal && !cart.length) || (isFixedMeal && !(Number(selectedMealType?.price_per_person) > 0)) || (orderType === "dine_in" && !tableId) || (!creditVerified || !creditAccountId || !creditMealTypeId || (isOrderBased ? !creditPersonId : !Number.isInteger(creditPersonCount) || creditPersonCount < 1))} onClick={()=>{setCheckout(true);setError("");}}>Place Credit Order</Button>
+          {checkout && <form onSubmit={placeOrder} className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4"><p className="text-sm">Credit account and Head Waiter identity verified.</p><Button type="submit" disabled={submitting || !creditVerified} className="w-full">{submitting ? "Submitting..." : "Submit Credit Order"}</Button><Button type="button" variant="outline" className="w-full" onClick={()=>setCheckout(false)}>Cancel</Button></form>}
+        </>}
         {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-red-700">{error}</p>}
       </aside>
     </div>
