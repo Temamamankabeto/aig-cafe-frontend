@@ -1,83 +1,123 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { Button } from "@/components/ui/button";
 
-function cameraError(error: unknown): string {
-  const name = error instanceof Error ? error.name : "UnknownError";
-  const detail = error instanceof Error ? error.message : String(error);
-  if (name === "NotAllowedError" || name === "PermissionDeniedError") return `Chrome denied live camera access (${name}: ${detail}). Allow Camera for this site in Chrome and retry.`;
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No usable camera was found for live scanning. Check Chrome camera permission and retry.";
-  if (name === "NotReadableError" || name === "TrackStartError") return "Camera is busy or cannot start. Close other camera apps or use Take Photo / Choose QR Image.";
-  if (name === "OverconstrainedError") return "The requested camera is unavailable. Check Chrome camera permission and retry.";
-  return `Unable to start live camera (${name}: ${detail}). Check Chrome camera permission and retry.`;
+type CameraDiagnostic = { name: string; message: string };
+
+function explainCameraError(cause: unknown): CameraDiagnostic {
+  const name = cause instanceof Error ? cause.name : "UnknownError";
+  const message = cause instanceof Error ? cause.message : String(cause);
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return { name, message: "Chrome refused camera access. Check this site's Camera permission and Android Camera access. If there was no permission prompt, check browser restrictions or the website's Permissions-Policy header." };
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") return { name, message: "No usable camera was found." };
+  if (name === "NotReadableError" || name === "TrackStartError") return { name, message: "Camera is already in use or could not start. Close other camera apps." };
+  if (name === "OverconstrainedError") return { name, message: "The requested camera settings are unsupported." };
+  return { name, message: `Camera could not start: ${message}` };
 }
 
 export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel = "Scan Waiter QR Card with Tablet Camera" }: { onScan: (code: string) => void; disabled?: boolean; buttonLabel?: string }) {
   const [active, setActive] = useState(false);
-  const [error, setError] = useState("");
-  const video = useRef<HTMLVideoElement>(null);
-  const controls = useRef<IScannerControls | null>(null);
-  const accepted = useRef(false);
+  const [error, setError] = useState<CameraDiagnostic | null>(null);
+  const [permissionState, setPermissionState] = useState<string>("unknown");
+  const [cameraStage, setCameraStage] = useState("idle");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const acceptedRef = useRef(false);
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
+
+  const stop = useCallback(() => {
+    controlsRef.current?.stop();
+    controlsRef.current = null;
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
 
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
-    accepted.current = false;
-    const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 250 });
-    const element = video.current;
-    if (!element) {
-      setError("Camera preview could not be initialized. Check Chrome camera permission and retry.");
-      setActive(false);
-      return;
-    }
+    acceptedRef.current = false;
 
-    const handleResult = (result: { getText(): string } | undefined | null) => {
-      if (!result || cancelled || accepted.current) return;
-      accepted.current = true;
-      controls.current?.stop();
-      setActive(false);
-      onScanRef.current(result.getText());
-    };
-
-    const start = async () => {
-      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Camera API unavailable in this browser or insecure context");
-      }
-      return reader.decodeFromConstraints({ video: { facingMode: { ideal: "environment" } }, audio: false }, element, handleResult);
-    };
-
-    void start().then((control) => {
-      if (cancelled || accepted.current) control.stop();
-      else controls.current = control;
-    }).catch((cause: unknown) => {
-      if (!cancelled) {
-        console.error("ENTERPOS waiter QR camera initialization failed", cause);
-        setError(cameraError(cause));
+    async function start() {
+      try {
+        setCameraStage("checking");
+        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Camera API unavailable: a secure HTTPS browser context is required.");
+        }
+        // A Permissions-Policy restriction can reject getUserMedia before Chrome prompts.
+        const policy = document as Document & { permissionsPolicy?: { allowsFeature: (name: string) => boolean }; featurePolicy?: { allowsFeature: (name: string) => boolean } };
+        const featurePolicy = policy.permissionsPolicy ?? policy.featurePolicy;
+        if (featurePolicy && !featurePolicy.allowsFeature("camera")) {
+          throw new Error("Camera blocked by the website Permissions-Policy or embedding frame. Allow camera for this origin.");
+        }
+        try {
+          const status = await navigator.permissions?.query({ name: "camera" as PermissionName });
+          if (!cancelled && status) setPermissionState(status.state);
+        } catch { /* Not all browsers expose camera permission status. */ }
+        if (cancelled) return;
+        setCameraStage("requesting");
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" } } });
+        } catch (firstError) {
+          // Only retry an unsupported camera constraint, never bypass a permission denial.
+          if (firstError instanceof Error && (firstError.name === "OverconstrainedError" || firstError.name === "NotFoundError")) {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+          } else throw firstError;
+        }
+        if (cancelled) { stream.getTracks().forEach(track => track.stop()); return; }
+        streamRef.current = stream;
+        const element = videoRef.current;
+        if (!element) throw new Error("Camera preview element unavailable.");
+        element.setAttribute("playsinline", "true");
+        setCameraStage("scanning");
+        const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 180 });
+        const controls = await reader.decodeFromStream(stream, element, result => {
+          if (!result || cancelled || acceptedRef.current) return;
+          const code = result.getText().trim();
+          if (!code) return;
+          acceptedRef.current = true;
+          stop();
+          setActive(false);
+          onScanRef.current(code);
+        });
+        if (cancelled || acceptedRef.current) controls.stop();
+        else controlsRef.current = controls;
+      } catch (cause) {
+        if (cancelled) return;
+        console.error("ENTERPOS live waiter-card camera failed", cause);
+        setError(explainCameraError(cause));
+        setCameraStage("error");
+        stop();
         setActive(false);
       }
-    });
+    }
+    void start();
+    return () => { cancelled = true; stop(); };
+  }, [active, stop]);
 
-    return () => {
-      cancelled = true;
-      controls.current?.stop();
-      controls.current = null;
-      if (element.srcObject instanceof MediaStream) {
-        element.srcObject.getTracks().forEach(track => track.stop());
-        element.srcObject = null;
-      }
-    };
-  }, [active]);
+  const toggle = () => {
+    if (active) { stop(); setActive(false); setCameraStage("idle"); }
+    else { setError(null); setPermissionState("unknown"); setActive(true); }
+  };
 
   return <div className="space-y-2">
-    <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(""); setActive(v => !v); }}>
+    <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={toggle}>
       {active ? "Close camera" : buttonLabel}
     </Button>
-    {active && <div className="space-y-2"><video ref={video} autoPlay playsInline muted className="h-64 w-full rounded-xl bg-black object-cover" /><p className="text-center text-sm">Point the camera at the waiter QR code. Scanning happens automatically—no photo needed.</p></div>}
-    {error && <div role="alert" className="text-sm text-red-700"><p>{error}</p></div>}
-    {error && <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(""); setActive(true); }}>Retry live camera</Button>}
+    {active && <div className="space-y-2">
+      <video ref={videoRef} autoPlay playsInline muted className="h-64 w-full rounded-xl bg-black object-cover" />
+      <p className="text-center text-sm">{cameraStage === "scanning" ? "Hold the waiter QR card in front of the camera. Detection is automatic—no photo needed." : "Opening live camera…"}</p>
+    </div>}
+    {error && <div role="alert" className="space-y-1 text-sm text-red-700">
+      <p>{error.message}</p>
+      <p className="text-xs">Diagnostic: {error.name} · Camera permission: {permissionState} · Secure context: {typeof window !== "undefined" && window.isSecureContext ? "yes" : "no"}</p>
+    </div>}
+    {error && <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(null); setActive(true); }}>Retry live camera</Button>}
   </div>;
 }
