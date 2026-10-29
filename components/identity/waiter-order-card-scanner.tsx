@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 function cameraError(error: unknown): string {
   const name = error instanceof Error ? error.name : "UnknownError";
   const detail = error instanceof Error ? error.message : String(error);
-  if (name === "NotAllowedError" || name === "PermissionDeniedError") return "Camera permission denied. Allow Camera for this website in Chrome settings, then try again.";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") return `Camera access was rejected by the browser (${name}: ${detail}). Check Chrome site camera permission and Android Camera access, then retry. If permission is already allowed, retry the camera.`;
   if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No usable camera was found. Check that the tablet camera is available.";
   if (name === "NotReadableError" || name === "TrackStartError") return "The camera is busy or cannot start. Close other camera apps and try again.";
-  if (name === "OverconstrainedError") return "The requested camera is unavailable on this tablet. Try again with the default camera.";
+  if (name === "OverconstrainedError") return "The requested camera is unavailable on this tablet. Please retry the camera.";
   return `Unable to start camera (${name}: ${detail}). Please try again.`;
 }
 
@@ -47,15 +47,10 @@ export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel =
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
         throw new Error("Camera API unavailable in this browser or insecure context");
       }
-      // Prefer the back camera, but support tablets that do not expose facingMode.
-      try {
-        return await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: "environment" } }, audio: false }, element, handleResult
-        );
-      } catch (firstError) {
-        if (cancelled || (firstError instanceof Error && ["NotAllowedError", "PermissionDeniedError"].includes(firstError.name))) throw firstError;
-        return reader.decodeFromConstraints({ video: true, audio: false }, element, handleResult);
-      }
+      // Let the browser choose a supported camera on every device.
+      return await reader.decodeFromConstraints(
+        { video: true, audio: false }, element, handleResult
+      );
     };
 
     void start().then((control) => {
@@ -85,6 +80,11 @@ export function WaiterOrderCardScanner({ onScan, disabled = false, buttonLabel =
       {active ? "Close camera" : buttonLabel}
     </Button>
     {active && <video ref={video} autoPlay playsInline muted className="h-56 w-full rounded-xl bg-black object-cover" />}
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    {error && <div role="alert" className="space-y-2 text-sm text-red-700">
+      <p>{error}</p>
+      <Button type="button" variant="outline" className="w-full" disabled={disabled} onClick={() => { setError(""); setActive(true); }}>
+        Retry camera
+      </Button>
+    </div>}
   </div>;
 }
