@@ -127,6 +127,23 @@ export interface FoodControllerDashboardData {
   };
 }
 
+export interface ReceivedStockItem {
+  id: number;
+  inventory_item_id: number;
+  quantity_received: number | string;
+  base_unit: string | null;
+  unit_cost: number | string;
+  total_price: number;
+  pad_registered_at: string | null;
+  pad_registered_by: number | null;
+  inventory_item?: { id: number; name: string; base_unit?: string | null } | null;
+  stock_receiving?: {
+    id: number;
+    received_at: string | null;
+    purchase_order?: { id: number; po_number: string | null } | null;
+  } | null;
+}
+
 export interface SupplierRow {
   id: number;
   name: string;
@@ -234,11 +251,12 @@ export interface PurchaseOrderPayload {
 }
 
 export interface ReceiveOrderPayload {
-  receipt_number: string;
+  receipt_number?: string | null;
   note?: string;
   items: Array<{
     purchase_order_item_id: number;
     quantity: number;
+    unit_cost: number;
     unit?: string;
     expiry_date?: string;
     batch_no?: string;
@@ -517,6 +535,19 @@ export const procurementService = {
       { reason },
     );
     return unwrap<PurchaseOrderRow>(response.data);
+  },
+
+  async receivedStockItems(params: {
+    date_from?: string; date_to?: string; pad_status?: "all" | "registered" | "not_registered";
+    page?: number; per_page?: number;
+  } = {}) {
+    const response = await api.get("/stock-keeper/stock-receiving-items", { params: cleanParams(params as Record<string, unknown>) });
+    return paginated<ReceivedStockItem>(response.data);
+  },
+
+  async registerReceivedStockItemsPad(itemIds: number[]) {
+    const response = await api.post("/stock-keeper/stock-receiving-items/register-pad", { item_ids: itemIds });
+    return unwrap<{ updated_count: number }>(response.data);
   },
 
   async stockReceivings(

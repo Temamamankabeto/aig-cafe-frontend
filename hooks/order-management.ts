@@ -39,7 +39,7 @@ export function useCreditOrdersQuery(filters: OrderFilters = {}) {
 }
 
 export function usePrepTicketsQuery(kind: TicketKind = "kitchen", filters: OrderFilters = {}) {
-  return useQuery({ queryKey: queryKeys.prepTickets.list(kind, filters), queryFn: () => orderService.prepTickets(kind, filters) });
+  return useQuery({ queryKey: queryKeys.prepTickets.list(kind, filters), queryFn: () => orderService.prepTickets(kind, filters), refetchInterval: 5000, refetchIntervalInBackground: true });
 }
 
 export function usePackagesQuery(filters: OrderFilters = {}) {

@@ -3381,6 +3381,8 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
   const query = usePrepTicketsQuery(kind, filters);
   const action = usePrepTicketActionMutation();
   const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
+  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<"regular" | "credit">("regular");
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   const [expandedMealTypes, setExpandedMealTypes] = useState<string[]>([]);
@@ -3395,6 +3397,41 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
   function canReady(status?: string) { return ["preparing"].includes(String(status ?? "").toLowerCase()); }
   function canServed(status?: string) { return ["ready"].includes(String(status ?? "").toLowerCase()); }
 
+  const toggleTicketSelection = (id: string, checked: boolean) => setSelectedTicketIds((current) => checked ? [...new Set([...current, id])] : current.filter((value) => value !== id));
+  const toggleGroupSelection = (tickets: any[], checked: boolean) => {
+    const ids = tickets.filter((ticket) => canAccept(ticket.status) || canReady(ticket.status) || canServed(ticket.status)).map((ticket) => String(ticket.id));
+    setSelectedTicketIds((current) => checked ? [...new Set([...current, ...ids])] : current.filter((id) => !ids.includes(id)));
+  };
+  const selectedForAction = (tickets: any[], operation: "accept" | "ready" | "served") => tickets.filter((ticket) => selectedTicketIds.includes(String(ticket.id)) && (operation === "accept" ? canAccept(ticket.status) : operation === "ready" ? canReady(ticket.status) : canServed(ticket.status)));
+  const performBulkAction = async (tickets: any[], operation: "accept" | "ready" | "served") => {
+    if (bulkBusy || action.isPending) return;
+    const eligible = selectedForAction(tickets, operation);
+    if (!eligible.length) return;
+    setBulkBusy(true);
+    try {
+      // Existing per-ticket endpoint enforces status transitions and permissions.
+      // Sequential updates avoid inventing a new bulk API contract.
+      for (const ticket of eligible) await action.mutateAsync({ kind, id: ticket.id, action: operation });
+      setSelectedTicketIds((current) => current.filter((id) => !eligible.some((ticket) => String(ticket.id) === id)));
+      await query.refetch();
+    } finally { setBulkBusy(false); }
+  };
+  const groupBulkControls = (tickets: any[]) => {
+    const selectable = tickets.filter((ticket) => canAccept(ticket.status) || canReady(ticket.status) || canServed(ticket.status));
+    return <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3 text-base shadow-sm">
+      <label className="flex items-center gap-2 font-semibold"><Checkbox aria-label="Select all actionable items in this order" checked={selectable.length > 0 && selectable.every((ticket) => selectedTicketIds.includes(String(ticket.id)))} disabled={!selectable.length || bulkBusy} onCheckedChange={(checked) => toggleGroupSelection(tickets, checked === true)} /> Select all ({selectable.length})</label>
+      <span className="text-sm text-muted-foreground">{tickets.filter((ticket) => selectedTicketIds.includes(String(ticket.id))).length} selected</span>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        {(() => {
+          const selected = tickets.filter((ticket) => selectedTicketIds.includes(String(ticket.id)));
+          const operations = selected.map((ticket) => canAccept(ticket.status) ? "accept" : canReady(ticket.status) ? "ready" : canServed(ticket.status) ? "served" : null);
+          const operation = operations.length > 0 && operations[0] && operations.every((value) => value === operations[0]) ? operations[0] : null;
+          const labels = { accept: "Accept selected", ready: "Mark selected Ready", served: "Mark selected Served" } as const;
+          return operation ? <Button type="button" size="sm" className="text-sm font-semibold" disabled={bulkBusy || action.isPending} onClick={() => void performBulkAction(tickets, operation)}>{labels[operation]} ({selected.length})</Button> : <span className="text-sm text-muted-foreground">{selected.length ? "Select items with the same status" : "Select items to update status"}</span>;
+        })()}
+      </div>
+    </div>;
+  };
   const visibleRows = rows.filter((ticket: any) => {
     const order = ticket.order_item?.order ?? ticket.order;
     const isCredit = ticket.payment_type === "credit" || order?.payment_type === "credit";
@@ -3406,6 +3443,21 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
     acc[key].tickets.push(ticket);
     return acc;
   }, {} as Record<string, any>)) as Array<{key: string; number: string; tickets: any[]}>;
+  // Keep the latest incoming order first on both Kitchen and Bar boards.
+  // Prefer the order creation time over ticket updates (status changes must not reorder it).
+  const orderCreatedAt = (ticket: any): number => {
+    const value = ticket.order_item?.order?.created_at ?? ticket.order?.created_at ?? ticket.order_item?.order?.ordered_at ?? ticket.order?.ordered_at ?? ticket.created_at;
+    const parsed = value ? new Date(value).getTime() : NaN;
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  grouped.sort((a, b) => {
+    const newestA = Math.max(0, ...a.tickets.map(orderCreatedAt));
+    const newestB = Math.max(0, ...b.tickets.map(orderCreatedAt));
+    if (newestA !== newestB) return newestB - newestA;
+    const idA = Number(a.tickets[0]?.order_id ?? a.tickets[0]?.order?.id ?? a.tickets[0]?.id ?? 0);
+    const idB = Number(b.tickets[0]?.order_id ?? b.tickets[0]?.order?.id ?? b.tickets[0]?.id ?? 0);
+    return idB - idA;
+  });
   const toggleOrder = (key: string) => setExpandedOrders((current) => current.includes(key) ? current.filter((id) => id !== key) : [...current, key]);
   const groupStatus = (tickets: any[]) => {
     const statuses = tickets.map((ticket) => String(ticket.status ?? "confirmed").toLowerCase());
@@ -3426,11 +3478,11 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
   const toggleMealType = (key: string) => setExpandedMealTypes((current) => current.includes(key) ? current.filter((v) => v !== key) : [...current, key]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-base">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          <p className="text-muted-foreground">Accept confirmed tickets, mark preparation ready, and close served items.</p>
+          <p className="text-muted-foreground">Accept confirmed tickets, mark preparation ready, and close served items. Automatically refreshes every 5 seconds.</p>
         </div>
         <div className="flex gap-2">
           <Select value={filters.scope} onValueChange={(scope) => setFilters({ ...filters, scope })}>
@@ -3478,11 +3530,11 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
                       <span>Persons: {group.tickets[0]?.credit_meal?.number_of_person ?? "—"}</span>
                       <StatusBadge status={groupStatus(group.tickets)} />
                     </div>
-                    {expandedOrders.includes(group.key) && <div className="mt-3 space-y-2 border-t pt-3">{group.tickets.map((ticket: any) => {
+                    {expandedOrders.includes(group.key) && <div className="mt-3 space-y-2 border-t pt-3">{groupBulkControls(group.tickets)}{group.tickets.map((ticket: any) => {
                       const status = String(ticket.status ?? "confirmed").toLowerCase();
-                      return <div key={ticket.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/30 p-2">
-                        <span>{ticketName(ticket)} · Qty {ticket.order_item?.quantity ?? ticket.quantity ?? 1}</span><StatusBadge status={status} />
-                        <div className="flex gap-2">{canAccept(status) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "accept" })}>Accept</Button>}{canReady(status) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "ready" })}>Ready</Button>}{canServed(status) && <Button size="sm" variant="outline" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "served" })}>Served</Button>}</div>
+                      return <div key={ticket.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-muted/30 p-3 text-base">
+                        <Checkbox aria-label={`Select ${ticketName(ticket)}`} checked={selectedTicketIds.includes(String(ticket.id))} disabled={bulkBusy || !(canAccept(status) || canReady(status) || canServed(status))} onCheckedChange={(checked) => toggleTicketSelection(String(ticket.id), checked === true)} /><span>{ticketName(ticket)} · Qty {ticket.order_item?.quantity ?? ticket.quantity ?? 1}</span><StatusBadge status={status} />
+
                       </div>;
                     })}</div>}
                   </div>)}
@@ -3496,7 +3548,7 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
         <CardContent className="pt-6">
           <div className="overflow-x-auto rounded-xl border">
             <Table>
-              <TableHeader><TableRow><TableHead>Order Number (Items)</TableHead><TableHead>Waiter</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead className="text-base font-bold">Order Number (Items)</TableHead><TableHead className="text-base font-bold">Waiter</TableHead><TableHead className="text-base font-bold">Status</TableHead><TableHead className="text-right text-base font-bold">Actions</TableHead></TableRow></TableHeader>
               <TableBody>
                 {query.isLoading ? <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">Loading tickets...</TableCell></TableRow> : grouped.length ? grouped.map((group) => {
                   const expanded = expandedOrders.includes(group.key);
@@ -3514,20 +3566,17 @@ export function PrepTicketsPage({ kind = "kitchen" }: { kind?: "kitchen" | "bar"
                       <TableCell className="text-right"><span className="text-xs text-muted-foreground">Expand for item actions</span></TableCell>
                     </TableRow>
                     {expanded && <TableRow><TableCell colSpan={4} className="bg-muted/30 p-3">
-                      <div className="overflow-x-auto rounded-lg border bg-background">
-                        <Table><TableHeader><TableRow><TableHead>Item / Ticket</TableHead><TableHead>Qty</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                      {groupBulkControls(group.tickets)}
+                      <div className="mt-3 overflow-x-auto rounded-lg border bg-background">
+                        <Table><TableHeader><TableRow><TableHead className="w-12">Select</TableHead><TableHead>Item / Ticket</TableHead><TableHead>Qty</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
                           <TableBody>{group.tickets.map((ticket: any) => {
                             const itemStatus = String(ticket.status ?? "confirmed").toLowerCase();
-                            return <TableRow key={ticket.id}>
-                              <TableCell><span className="font-medium">{ticketName(ticket)}</span><div className="text-xs text-muted-foreground">{ticket.ticket_number ?? `#${ticket.id}`}</div></TableCell>
+                            return <TableRow key={ticket.id} className="text-base">
+                              <TableCell><Checkbox aria-label={`Select ${ticketName(ticket)}`} checked={selectedTicketIds.includes(String(ticket.id))} disabled={bulkBusy || !(canAccept(itemStatus) || canReady(itemStatus) || canServed(itemStatus))} onCheckedChange={(checked) => toggleTicketSelection(String(ticket.id), checked === true)} /></TableCell>
+                              <TableCell><span className="font-semibold text-base">{ticketName(ticket)}</span><div className="text-sm text-muted-foreground">{ticket.ticket_number ?? `#${ticket.id}`}</div></TableCell>
                               <TableCell>{ticket.order_item?.quantity ?? ticket.quantity ?? 1}</TableCell>
                               <TableCell><StatusBadge status={itemStatus} /></TableCell>
-                              <TableCell className="text-right"><div className="flex justify-end gap-2">
-                                {canAccept(itemStatus) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "accept" })}>Accept</Button>}
-                                {canReady(itemStatus) && <Button size="sm" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "ready" })}>Ready</Button>}
-                                {canServed(itemStatus) && <Button size="sm" variant="outline" disabled={action.isPending} onClick={() => action.mutate({ kind, id: ticket.id, action: "served" })}>Served</Button>}
-                                {!canAccept(itemStatus) && !canReady(itemStatus) && !canServed(itemStatus) && <span className="text-xs text-muted-foreground">No action</span>}
-                              </div></TableCell>
+
                             </TableRow>;
                           })}</TableBody></Table>
                       </div>

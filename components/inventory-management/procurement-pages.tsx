@@ -80,6 +80,7 @@ import {
 } from "@/services/inventory-management/procurement.service";
 import { PurchaseValidationConfirmPage } from "@/components/inventory-management/purchase-validation-confirm-page";
 import { printBusinessDocument } from "@/lib/print-documents";
+import { ReceivedItemsPaymentList } from "@/components/inventory-management/received-items-payment-list";
 
 type StatusFilter =
   | "all"
@@ -808,6 +809,7 @@ export function OrderedItemsReceivingPage() {
           />
         </CardContent>
       </Card>
+      <ReceivedItemsPaymentList />
     </div>
   );
 }
@@ -902,6 +904,7 @@ function ReceiveOrderForm({
       purchase_order_item_id: line.id,
       quantity: String(poRemaining(line)),
       expiry_date: "",
+      unit_cost: String(line.unit_cost ?? 0),
     }));
   const [lines, setLines] = useState(initialLines);
   const [receiptNumber, setReceiptNumber] = useState("");
@@ -919,7 +922,7 @@ function ReceiveOrderForm({
           ["Supplier", po.supplier?.name ?? "—"],
           ["Received at", receiving?.received_at ? new Date(receiving.received_at).toLocaleString() : new Date().toLocaleString()],
           ["Status", receiving?.status ?? "approved"],
-          ["Receipt Number", receiving?.receipt_number ?? receiptNumber],
+          ["Receipt Number", receiving?.receipt_number || receiptNumber || "—"],
         ],
         columns: [
           { key: "item", label: "Inventory item" },
@@ -958,14 +961,25 @@ function ReceiveOrderForm({
           quantity: Number(line.quantity),
           unit: lineUnit(poLine),
           expiry_date: line.expiry_date || undefined,
+          unit_cost: Number(line.unit_cost),
         };
       });
     if (!items.length) {
       toast.error("Enter at least one received quantity");
       return;
     }
-    if (!receiptNumber.trim()) { toast.error("Enter the delivery receipt number"); return; }
-    mutation.mutate({ receipt_number: receiptNumber.trim(), note: String(form.get("note") ?? ""), items });
+    for (const line of lines.filter((row) => Number(row.quantity) > 0)) {
+      const original = (po.items ?? []).find((item) => item.id === line.purchase_order_item_id);
+      if (!Number.isFinite(Number(line.quantity)) || Number(line.quantity) > (original ? poRemaining(original) : 0)) {
+        toast.error("Receiving quantity cannot exceed the remaining quantity");
+        return;
+      }
+      if (line.unit_cost.trim() === "" || !Number.isFinite(Number(line.unit_cost)) || Number(line.unit_cost) < 0) {
+        toast.error("Enter a valid non-negative unit price for every received item");
+        return;
+      }
+    }
+    mutation.mutate({ receipt_number: receiptNumber.trim() || null, note: String(form.get("note") ?? ""), items });
   }
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -979,7 +993,7 @@ function ReceiveOrderForm({
           return (
             <div
               key={line.purchase_order_item_id}
-              className="grid gap-2 rounded-xl border p-3 md:grid-cols-[1fr_140px_160px]"
+              className="grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1fr)_120px_130px_130px]"
             >
               <div>
                 <p className="font-medium">
@@ -1009,6 +1023,22 @@ function ReceiveOrderForm({
                   )
                 }
               />
+              <div className="space-y-1">
+                <Label htmlFor={`receiving-cost-${line.purchase_order_item_id}`}>Unit price (ETB)</Label>
+                <Input
+                  id={`receiving-cost-${line.purchase_order_item_id}`}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  required
+                  value={line.unit_cost}
+                  onChange={(event) => setLines((old) => old.map((row, i) =>
+                    i === index ? { ...row, unit_cost: event.target.value } : row
+                  ))}
+                />
+                <p className="text-xs text-muted-foreground">Line total: {formatMoney(Number(line.quantity || 0) * Number(line.unit_cost || 0))} ETB</p>
+              </div>
               <Input
                 type="date"
                 value={line.expiry_date}
@@ -1027,9 +1057,12 @@ function ReceiveOrderForm({
           );
         })}
       </div>
+      <div className="rounded-lg bg-muted/40 px-3 py-2 text-sm font-medium">
+        Total receiving cost: {formatMoney(lines.reduce((total, line) => total + Math.max(0, Number(line.quantity) || 0) * Math.max(0, Number(line.unit_cost) || 0), 0))} ETB
+      </div>
       <div className="space-y-2">
-        <Label htmlFor="receipt-number">Receipt Number *</Label>
-        <Input id="receipt-number" required maxLength={100} placeholder="Supplier delivery receipt number" value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} />
+        <Label htmlFor="receipt-number">Receipt Number (optional)</Label>
+        <Input id="receipt-number" maxLength={100} placeholder="Supplier delivery receipt number" value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} />
       </div>
       <div>
         <Label>Receiving note</Label>
